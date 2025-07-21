@@ -3,496 +3,237 @@ from time import sleep as slp  # For delay
 from ctypes import windll  # For windows scale disable
 import numpy as np  # For 3d color array
 from PIL import ImageGrab  # For grabbing images
-from typing import TypedDict, Literal, Any, Union, cast  # Type annotations
+from typing import Any, Union, cast  # Type annotations
 from os import system, name
+from data import *
+import tkinter as tk
+from tkinter import filedialog
+import json
+import ctypes
+from threading import Thread
+
+
+class ConsoleManager:
+  can_run = True
+
+  def __init__(self):
+    self.viewing = False
+    self.script: ScriptDict = {
+        'data': {'flag': False, 'lines': []}, 'repr': []}
+    self.written: list[str] = []
+    self.handlers: Handlers = {
+        'args': {
+            'set': self.handle_set,
+            ('remove', 'rm'): self.handle_rm,
+        },
+        'noargs': {
+            'help': lambda: printq(command_info),
+            ('view', 'v'): self.handle_v,
+            ('save', 's'): self.handle_save,
+            ('load', 'l'): self.handle_load,
+            ('run', 'r'): lambda: Thread(target=self.handle_run).start(),
+            ('stop', 'st'): self.handle_stop,
+            ('edit'): self.handle_edit,
+        }
+    }
+    self.running = False
+
+  def commanding(self, inp: str):
+    parts = inp.split()
+    if len(parts) > 0:
+      cmd = parts[0]
+      args = parts[1:]
+      cmd_found = False
+      for command in self.handlers['noargs']:
+        if isinstance(command, str):
+          if cmd == command:
+            self.handlers['noargs'][command]()
+            cmd_found = True
+            break
+        else:
+          if cmd in command:
+            self.handlers['noargs'][command]()
+            cmd_found = True
+            break
+      if not cmd_found:
+        for command in self.handlers['args']:
+          if isinstance(command, str):
+            if cmd == command:
+              self.handlers['args'][command](args)
+              cmd_found = True
+              break
+          else:
+            if cmd in command:
+              self.handlers['args'][command](args)
+              cmd_found = True
+              break
+      if not cmd_found:
+        self.handle_info_lookup(inp)
+    else:
+      clear_console()
+      if manager.viewing:
+        script_view()
+      else:
+        manager.written.pop()
+        normal_view()
+
+  def handle_set(self, args: list[str]):
+    if len(args) != 2:
+      printq('Set command takes two arguments')
+      return
+    if set_check(args[0], args[1]):
+      self.script['data']['lines'].append(
+          (cast(CheckboxInfo | FieldInfo, find_info_by_name(args[0]))[0], args[1]))
+      self.script['repr'].append(f'set {args[0]} {args[1]}')
+      if self.viewing:
+        script_view()
+
+  def handle_rm(self, args: list[str]):
+    if len(args) != 1:
+      printq('Rm command takes one index argument')
+      return
+    if not (args[0].isdigit() or (args[0].startswith('-') and args[0][1:].isdigit())):
+      printq('Index must be an integer')
+      return
+    index = int(args[0])
+    if index == 0:
+      printq('Unsupported index 0')
+      return
+    if abs(index) > len(self.script['repr']):
+      printq('Index out of script range')
+      return
+    idx = index - 1 if index > 0 else index
+    self.script['data']['lines'].pop(idx)
+    self.script['repr'].pop(idx)
+    if self.viewing:
+      script_view()
+
+  def handle_v(self):
+    if self.viewing:
+      normal_view()
+      self.viewing = False
+    else:
+      script_view()
+      self.viewing = True
+
+  def handle_save(self):
+    root = tk.Tk()
+    root.withdraw()
+    root.attributes('-topmost', True)  # type: ignore
+    file_path = filedialog.asksaveasfilename(
+        defaultextension=".json",
+        filetypes=[("Script files", "*.json")],
+        title='Script file')
+    if file_path:
+      with open(file_path, 'w', encoding='utf-8') as f:
+        json.dump(self.script['data'], f, indent=2, ensure_ascii=True)
+    root.destroy()
+    ctypes.windll.user32.SetForegroundWindow(
+        ctypes.windll.kernel32.GetConsoleWindow()
+    )
+
+  def handle_load(self):
+    root = tk.Tk()
+    root.withdraw()
+    root.attributes('-topmost', True)  # type: ignore
+    file_path = filedialog.askopenfilename(
+        defaultextension=".json",
+        filetypes=[("Script files", "*.json")],
+        title="Script file")
+    if file_path:
+      with open(file_path, 'r', encoding='utf-8') as f:
+        try:
+          load = json.load(f)
+          self.script['data'] = load
+          self.script['repr'] = [f'set {name} {make}' for name, make in self.script['data']['lines']]
+        except:
+          printq('Damaged or unknown structure of the loading file')
+    root.destroy()
+    ctypes.windll.user32.SetForegroundWindow(
+        ctypes.windll.kernel32.GetConsoleWindow()
+    )
+
+  def handle_info_lookup(self, inp: str):
+    if (info := find_info_by_name(inp, commanding=True)) is not None:
+      printq(info)
+    else:
+      printq('Unknown command')
+
+  def handle_run(self):
+    if self.script['data']:
+      self.running = True
+      self.goedit = True
+      printq('Press middle button to start applying settings')
+      with pn.mouse.Listener(on_click=self.script_run):
+        while self.running:
+          slp(0.1)
+    else:
+      printq('Empty script, cannot run')
+
+  def script_run(self, x: int, y: int, button: pn.mouse.Button, pressed: bool):
+    if button == pn.mouse.Button.middle and pressed:
+      printq('Script started')
+      if self.script['data']['flag'] and self.goedit:
+        goto('edit')
+        self.goedit = False
+      eval(
+          f"set_options({','.join([f"('{line[0]}','{line[1]}')" for line in self.script['data']['lines']])})")
+
+  def handle_stop(self):
+    printq('Script finished')
+    self.running = False
+
+  def handle_edit(self):
+    if self.script['data']['flag']:
+      self.script['data']['flag'] = False
+    else:
+      self.script['data']['flag'] = True
+    if self.viewing:
+      script_view()
+
+
+class QACManager:
+  def __init__(self):
+    self.qac: dict[str, dict[str, int|None]] = {
+        'engineer': {'#': None, '%': None},
+        'guardian_angel': {'#': None, '%': None},
+        'scientist': {'#': None, '%': None},
+        'tracker': {'#': None, '%': None},
+        'noisemaker': {'#': None, '%': None},
+        'shapeshifter': {'#': None, '%': None},
+        'phantom': {'#': None, '%': None},
+    }
+  def set_to_zero(self, name: str, t: Literal['#','%']):
+    if name in self.qac:
+      self.qac[name][t]=0
+      self.update()
+    else:
+      printq(f'Name {name} is not in qac dict')
+  def update(self):
+    for role in self.qac:
+      if self.qac[role]['#']==0:
+        self.qac[role]['%']=50
+      if self.qac[role]['%']==0:
+        self.qac[role]['#'] =1
+  def clear(self):
+    for role in self.qac:
+      self.qac[role]['#']=None
+      self.qac[role]['%'] = None
+  # def check_get_other(self):
+    
+
 
 windll.user32.SetProcessDPIAware()
-
-Cords = tuple[int, int]
-
-
-class FieldDict(TypedDict):
-  minus: Cords
-  plus: Cords
-  vars: tuple[Any, ...]
-  step: int | float | Literal['string', 'inf5']
-
-
-class CrewmatesDict(TypedDict):
-  cords: Cords
-  fields: dict[str, FieldDict]
-  checkboxes: None
-
-
-class SectionDict(TypedDict):
-  cords: Cords
-  fields: dict[str, FieldDict]
-  checkboxes: dict[str, tuple[int, int]] | None
-
-
-class SectionsDict(TypedDict):
-  cords: Cords
-  impostors: SectionDict
-  crewmates: SectionDict
-  meetings: SectionDict
-  tasks: SectionDict
-
-
-QuantityAndChance = TypedDict('QuantityAndChance', {
-    '#': FieldDict,
-    '%': FieldDict
-})
-
-
-class CrewmateRolesDict(TypedDict):
-  cords: Cords
-  engineer: QuantityAndChance
-  guardian_angel: QuantityAndChance
-  scientist: QuantityAndChance
-  tracker: QuantityAndChance
-  noisemaker: QuantityAndChance
-
-
-class ImpostorRolesDict(TypedDict):
-  cords: Cords
-  shapeshifter: QuantityAndChance
-  phantom: QuantityAndChance
-
-
-class ScrollForAllDict(TypedDict):
-  cords: Cords
-  crewmate_roles: CrewmateRolesDict
-  impostor_roles: ImpostorRolesDict
-
-
-class RoleDict(TypedDict):
-  cords: Cords
-  all: ScrollForAllDict
-  engineer: SectionDict
-  guardian_angel: SectionDict
-  scientist: SectionDict
-  tracker: SectionDict
-  noisemaker: SectionDict
-  shapeshifter: SectionDict
-  phantom: SectionDict
-
-
-class SettingsDict(TypedDict):
-  edit: Cords
-  settings: SectionsDict
-  roles_settings: RoleDict
-
-
-v: SettingsDict = {
-    'edit': (1584, 751),
-    'settings': {
-        'cords': (425, 776),
-        'impostors': {
-            'cords': (1803, 440),
-            'fields': {
-                '#impostors': {
-                    'minus': (1288, 608),
-                    'plus': (1559, 604),
-                    'vars': (1, 2, 3),
-                    'step': 1,
-                },
-                'kill_cooldown': {
-                    'minus': (1290, 689),
-                    'plus': (1556, 691),
-                    'vars': tuple(map(float, np.arange(10, 61, 2.5))),
-                    'step': 2.5,
-                },
-                'impostor_vision': {
-                    'minus': (1293, 773),
-                    'plus': (1552, 763),
-                    'vars': tuple(map(float, np.arange(0.25, 5.1, 0.25))),
-                    'step': 0.25,
-                },
-                'kill_distance': {
-                    'minus': (1294, 844),
-                    'plus': (1554, 846),
-                    'vars': ('short', 'medium', 'long'),
-                    'step': 'string',
-                },
-            },
-
-            'checkboxes': None,
-        },
-        'crewmates': {
-            'cords': (1803, 632),
-            'fields': {
-                'player_speed': {
-                    'minus': (1293, 516),
-                    'plus': (1551, 514),
-                    'vars': tuple(map(float, np.arange(0.5, 3.1, 0.25))),
-                    'step': 0.25,
-                },
-                'crewmate_vision': {
-                    'minus': (1294, 597),
-                    'plus': (1549, 596),
-                    'vars': tuple(map(float, np.arange(0.25, 5.1, 0.25))),
-                    'step': 0.25,
-                },
-            },
-            'checkboxes': None,
-        },
-        'meetings': {
-            'cords': (1800, 766),
-            'fields': {
-                '#emergency_meetings': {
-                    'minus': (1294, 413),
-                    'plus': (1553, 412),
-                    'vars': tuple(range(10)),
-                    'step': 1,
-                },
-                'emergency_cooldown': {
-                    'minus': (1290, 490),
-                    'plus': (1556, 491),
-                    'vars': tuple(range(0, 61, 5)),
-                    'step': 5,
-                },
-                'discussion_time': {
-                    'minus': (1293, 571),
-                    'plus': (1551, 573),
-                    'vars': tuple(range(0, 121, 15)),
-                    'step': 15,
-                },
-                'voting_time': {
-                    'minus': (1291, 654),
-                    'plus': (1550, 655),
-                    'vars': tuple(range(0, 301, 15)),
-                    'step': 15,
-                },
-            },
-            'checkboxes': {
-                'anonymous_votes': (1272, 721),
-                'confirm_ejects': (1273, 804),
-            },
-        },
-        'tasks': {
-            'cords': (1803, 941),
-            'fields': {
-                'task_bar_updates': {
-                    'minus': (1290, 533),
-                    'plus': (1550, 530),
-                    'vars': ('always', 'meetings', 'never'),
-                    'step': 'string',
-                },
-                '#common_tasks': {
-                    'minus': (1291, 612),
-                    'plus': (1551, 610),
-                    'vars': (0, 1, 2),
-                    'step': 1,
-                },
-                '#long_tasks': {
-                    'minus': (1292, 694),
-                    'plus': (1549, 689),
-                    'vars': (0, 1, 2, 3),
-                    'step': 1,
-                },
-                '#short_tasks': {
-                    'minus': (1291, 774),
-                    'plus': (1552, 772),
-                    'vars': (0, 1, 2, 3, 4, 5),
-                    'step': 1,
-                },
-            },
-            'checkboxes': {
-                'visual_tasks': (1275, 829),
-            },
-        },
-
-    },
-
-    'roles_settings': {
-        'cords': (405, 894),
-        'all': {
-            'cords': (743, 286),
-            'crewmate_roles': {
-                'cords': (1804, 437),
-                'engineer': {
-                    '#':  {
-                        'minus': (1135, 611),
-                        'plus': (1327, 610),
-                        'vars': tuple(range(16)),
-                        'step': 1,
-                    },
-                    '%': {
-                        'minus': (1490, 609),
-                        'plus': (1681, 608),
-                        'vars': tuple(range(0, 101, 10)),
-                        'step': 10,
-                    },
-                },
-                'guardian_angel': {
-                    '#':  {
-                        'minus': (1139, 686),
-                        'plus': (1329, 685),
-                        'vars': tuple(range(16)),
-                        'step': 1,
-                    },
-                    '%': {
-                        'minus': (1489, 686),
-                        'plus': (1682, 685),
-                        'vars': tuple(range(0, 101, 10)),
-                        'step': 10,
-                    },
-                },
-                'scientist': {
-                    '#':  {
-                        'minus': (1136, 765),
-                        'plus': (1326, 764),
-                        'vars': tuple(range(16)),
-                        'step': 1,
-                    },
-                    '%': {
-                        'minus': (1490, 764),
-                        'plus': (1681, 763),
-                        'vars': tuple(range(0, 101, 10)),
-                        'step': 10,
-                    },
-                },
-                'tracker': {
-                    '#':  {
-                        'minus': (1136, 844),
-                        'plus': (1327, 841),
-                        'vars': tuple(range(16)),
-                        'step': 1,
-                    },
-                    '%': {
-                        'minus': (1488, 841),
-                        'plus': (1682, 839),
-                        'vars': tuple(range(0, 101, 10)),
-                        'step': 10,
-                    },
-                },
-                'noisemaker': {
-                    '#':  {
-                        'minus': (1136, 918),
-                        'plus': (1328, 919),
-                        'vars': tuple(range(16)),
-                        'step': 1,
-                    },
-                    '%': {
-                        'minus': (1489, 918),
-                        'plus': (1680, 917),
-                        'vars': tuple(range(0, 101, 10)),
-                        'step': 10,
-                    },
-                },
-            },
-            'impostor_roles': {
-                'cords': (1802, 951),
-                'shapeshifter': {
-                    '#':  {
-                        'minus': (1134, 821),
-                        'plus':  (1328, 820),
-                        'vars': tuple(range(16)),
-                        'step': 1,
-                    },
-                    '%': {
-                        'minus': (1488, 820),
-                        'plus': (1681, 819),
-                        'vars': tuple(range(0, 101, 10)),
-                        'step': 10,
-                    },
-                },
-                'phantom': {
-                    '#':  {
-                        'minus': (1136, 899),
-                        'plus':  (1327, 897),
-                        'vars': tuple(range(16)),
-                        'step': 1,
-                    },
-                    '%': {
-                        'minus': (1490, 898),
-                        'plus': (1682, 897),
-                        'vars': tuple(range(0, 101, 10)),
-                        'step': 10,
-                    },
-                },
-            },
-        },
-        'engineer': {
-            'cords': (884, 286),
-            'fields': {
-                'vent_use_cooldown': {
-                    'minus': (1452, 739),
-                    'plus': (1711, 737),
-                    'vars': tuple(range(5, 61, 5)),
-                    'step': 5,
-                },
-                'max_time_in_vents': {
-                    'minus': (1452, 820),
-                    'plus': (1711, 819),
-                    'vars': ('inf', *range(5, 61, 5)),
-                    'step': 'inf5',
-                },
-            },
-            'checkboxes': None,
-        },
-        'guardian_angel': {
-            'cords': (1020, 286),
-            'fields': {
-                'protect_cooldown': {
-                    'minus': (1451, 738),
-                    'plus': (1710, 735),
-                    'vars': tuple(range(35, 121, 5)),
-                    'step': 5,
-                },
-                'protect_duration': {
-                    'minus': (1452, 819),
-                    'plus': (1711, 819),
-                    'vars': tuple(range(5, 31, 5)),
-                    'step': 5,
-                },
-            },
-            'checkboxes': {
-                'protect_visible_to_impostors': (1433, 875),
-            },
-        },
-        'scientist': {
-            'cords': (1157, 285),
-            'fields': {
-                'vitals_display_cooldown': {
-                    'minus': (1452, 737),
-                    'plus': (1711, 736),
-                    'vars': tuple(range(5, 61, 5)),
-                    'step': 5,
-                },
-                'battery_duration': {
-                    'minus': (1450, 819),
-                    'plus': (1711, 818),
-                    'vars': tuple(range(5, 31, 5)),
-                    'step': 5,
-                },
-            },
-            'checkboxes': None,
-        },
-        'tracker': {
-            'cords': (1290, 286),
-            'fields': {
-                'tracking_cooldown': {
-                    'minus': (1451, 737),
-                    'plus': (1711, 737),
-                    'vars': tuple(range(10, 121, 5)),
-                    'step': 5,
-                },
-                'tracking_delay': {
-                    'minus': (1451, 819),
-                    'plus': (1710, 817),
-                    'vars': tuple(range(4)),
-                    'step': 1,
-                },
-                'tracking_duration': {
-                    'minus': (1453, 900),
-                    'plus': (1712, 899),
-                    'vars': tuple(range(10, 121, 5)),
-                    'step': 5,
-                },
-            },
-            'checkboxes': None,
-        },
-        'noisemaker': {
-            'cords': (1429, 283),
-            'checkboxes': {
-                'impostors_get_alert': (1433, 713),
-            },
-            'fields': {
-                'alert_duration': {
-                    'minus': (1451, 818),
-                    'plus': (1711, 818),
-                    'vars': tuple(range(1, 16)),
-                    'step': 1,
-                },
-            },
-        },
-        'shapeshifter': {
-            'cords': (1564, 286),
-            'checkboxes': {
-                'leave_shapeshifting_evidence': (1433, 712),
-            },
-            'fields': {
-                'shapeshift_duration': {
-                    'minus': (1452, 820),
-                    'plus': (1711, 820),
-                    'vars': ('inf', *range(5, 31, 5)),
-                    'step': 'inf5',
-                },
-                'shapeshift_cooldown': {
-                    'minus': (1452, 903),
-                    'plus': (1712, 901),
-                    'vars': tuple(range(5, 91, 5)),
-                    'step': 5,
-                },
-            },
-        },
-        'phantom': {
-            'cords': (1701, 283),
-            'fields': {
-                'vanish_duration': {
-                    'minus': (1453, 738),
-                    'plus': (1711, 738),
-                    'vars': tuple(range(10, 91, 10)),
-                    'step': 10,
-                },
-                'vanish_cooldown': {
-                    'minus': (1450, 819),
-                    'plus': (1711, 820),
-                    'vars': tuple(range(5, 61, 5)),
-                    'step': 5,
-                },
-            },
-            'checkboxes': None,
-        },
-    },
-
-}
-
-settings_sections = cast(dict[str, SectionDict], {
-    k: val
-    for k, val in v['settings'].items()
-    if k != 'cords'
-})
-roles_settings_roles = cast(dict[str, SectionDict], {
-    k: val
-    for k, val in v['roles_settings'].items()
-    if k != 'all' and k != 'cords'
-})
-roles_settings_roles_all = cast(dict[str, ScrollForAllDict | SectionDict], {
-    k: val
-    for k, val in v['roles_settings'].items()
-    if k != 'cords'
-})
-all_teams = cast(dict[str, CrewmateRolesDict | ImpostorRolesDict], {
-    k: val
-    for k, val in v['roles_settings']['all'].items()
-    if k != 'cords'
-})
-teams_crewmate_roles = cast(dict[str, QuantityAndChance], {
-    k: val
-    for k, val in v['roles_settings']['all']['crewmate_roles'].items()
-    if k != 'cords'
-})
-teams_impostor_roles = cast(dict[str, QuantityAndChance], {
-    k: val
-    for k, val in v['roles_settings']['all']['impostor_roles'].items()
-    if k != 'cords'
-})
+mouse = pn.mouse.Controller()
+manager = ConsoleManager()
+qacm=QACManager()
 current_settings_section = v['settings']['impostors']['cords']
-clicks: list[tuple[int, int]] = []
-counter = 0
 TEAL = (44, 243, 198)
 TOLERANCE = 30
 CHECKBOX_SHAPE = (60, 60)
 current_setting = 'standart_settings'
 current_all_section = 'crewmate_roles'
-FieldInfo = tuple[str, FieldDict, Literal['f']]
-CheckboxInfo = tuple[str, Cords, Literal['c']]
 goedit = True
-script: dict[str, list[str]]= {'exec':[], 'repr':[]}
-written: list[str] = []
-viewing: bool = False
 
 
 def check(*check_to: str) -> str:
@@ -523,13 +264,13 @@ def check(*check_to: str) -> str:
   again: list[str] = []
   for i, string in enumerate(check_to):
     again.append(f'{i+1} -> {string}')
-  check_what = inputq('\n'.join(again)+'\n> ')
+  check_what = inputq('\n'.join(again)+'\n> ').strip()
   while True:
     if check_what in map(str, range(1, len(check_to)+1)):
       break
     else:
       printq('Invalid input')
-      check_what = inputq('\n'.join(again)+'\n> ')
+      check_what = inputq('\n'.join(again)+'\n> ').strip()
   return check_what
 
 
@@ -538,7 +279,7 @@ def clear_console():
   system('cls' if name == 'nt' else 'clear')
 
 
-def find_info_by_name(name: str, commanding: bool = False, get_path: bool = False) -> Union[
+def find_info_by_name(name: str, commanding: bool = False) -> Union[
     Cords,
     int,
     float,
@@ -560,18 +301,17 @@ def find_info_by_name(name: str, commanding: bool = False, get_path: bool = Fals
         - Shortcut (e.g., 'kill_cooldown' for recursive search)
         - Prefix with 'v.' (automatically stripped)
       commanding (bool): If True, returns only keys/views instead of full info for other functions.
-      get_path (bool): Gives recursively searched path for a name
 
     Returns:
-      out                    
+      out:
       One of many possible return types depending on what's found:
-      - tuple[int, int]: When coordinates are found (x, y)
-      - int | float | str: When a step value found
-      - list[str]: When returning available keys for a dictionary level
-      - None: When path doesn't resolve or no checkboxes in section
-      - tuple[str, dict, Literal['f', 'c']]: Structured return:
-        * (section_name, field_data, 'f') for fields
-        * (section_name, cords_data, 'c') for checkboxes
+        - tuple[int, int]: When coordinates are found (x, y)
+        - int | float | str: When a step value found
+        - list[str]: When returning available keys for a dictionary level
+        - None: When path doesn't resolve or no checkboxes in section
+        - tuple[str, dict, Literal['f', 'c']]: Structured return:
+          * (vpath, section_name, field_data, 'f') for fields
+          * (vpath, section_name, cords, 'c') for checkboxes
 
     Examples:
       Get coordinates directly:
@@ -585,12 +325,9 @@ def find_info_by_name(name: str, commanding: bool = False, get_path: bool = Fals
       ['minus', 'plus', 'field']
       Recursive search by field name:
       >>> find_info_by_name('kill_cooldown')
-      ('impostors', {...}, 'f')
+      ('settings.impostors.fields.kill_cooldown', 'impostors', {...}, 'f')
       >>> find_info_by_name('noisemaker.#')
-      ('crewmate_roles', {...}, 'f')
-      Get full path:
-      >>> find_info_by_name('protect_visible_to_impostors', get_path=True)
-      'roles_settings.guardian_angel.checkboxes.protect_visible_to_impostors'
+      ('roles_settings.all.crewmate_roles.noisemaker.#', 'crewmate_roles', {...}, 'f')
     """
   if name.startswith('v.'):
     name = name[2:]
@@ -598,8 +335,6 @@ def find_info_by_name(name: str, commanding: bool = False, get_path: bool = Fals
     return list(cast(list[str], v.keys()))
   if name.startswith('.'):
     name = name[1:]
-  if name == '':
-    return "Try type 'help'"
   current: Any = v
   parts = name.split('.')
   if not commanding:
@@ -607,7 +342,7 @@ def find_info_by_name(name: str, commanding: bool = False, get_path: bool = Fals
       if len(parts) == 4 and parts[0] == 'settings' and parts[1] in settings_sections and parts[2] == 'fields' and parts[3] in settings_sections[parts[1]]['fields']:
         section = parts[1]
         field = settings_sections[section]['fields'][parts[3]]
-        return section, field, 'f'
+        return name, section, field, 'f'
     except:
       pass
     try:
@@ -615,7 +350,7 @@ def find_info_by_name(name: str, commanding: bool = False, get_path: bool = Fals
         section = parts[1]
         checkbox = cast(dict[str, Cords], settings_sections[section]['checkboxes'])[
             parts[3]]
-        return section, checkbox, 'c'
+        return name, section, checkbox, 'c'
     except:
       pass
     try:
@@ -628,19 +363,19 @@ def find_info_by_name(name: str, commanding: bool = False, get_path: bool = Fals
         role = parts[3]
         cont = parts[4]
         field = cast(FieldDict, all_teams[team][role][cont])
-        return team, field, 'f'
+        return name, team, field, 'f'
     except:
       pass
     try:
       if len(parts) == 4 and parts[0] == 'roles_settings' and parts[1] in roles_settings_roles and parts[2] in 'fields' and parts[3] in roles_settings_roles[parts[1]]['fields']:
         role = parts[1]
-        return role, roles_settings_roles[role]['fields'][parts[3]], 'f'
+        return name, role, roles_settings_roles[role]['fields'][parts[3]], 'f'
     except:
       pass
     try:
       if len(parts) == 4 and parts[0] == 'roles_settings' and parts[1] in roles_settings_roles and parts[2] in 'checkboxes' and parts[3] in cast(dict[str, Cords], roles_settings_roles[parts[1]]['checkboxes']):
         role = parts[1]
-        return role,  cast(dict[str, Cords], roles_settings_roles[parts[1]]['checkboxes'])[parts[3]], 'c'
+        return name, role,  cast(dict[str, Cords], roles_settings_roles[parts[1]]['checkboxes'])[parts[3]], 'c'
     except:
       pass
 
@@ -650,61 +385,36 @@ def find_info_by_name(name: str, commanding: bool = False, get_path: bool = Fals
     else:
       if current is v:
         if part in settings_sections:
-          if not get_path:
-            return find_info_by_name(f'settings.{name}', commanding=commanding)
-          else:
-            return f'settings.{name}'
+          return find_info_by_name(f'settings.{name}', commanding=commanding)
 
         for section in settings_sections:
           if part in v['settings'][section]['fields']:
-            if not get_path:
-              return find_info_by_name(f'settings.{section}.fields.{name}', commanding=commanding)
-            else:
-              return f'settings.{section}.fields.{name}'
+            return find_info_by_name(f'settings.{section}.fields.{name}', commanding=commanding)
+
           if v['settings'][section]['checkboxes'] is not None and part in v['settings'][section]['checkboxes']:
-            if not get_path:
-              return find_info_by_name(f'settings.{section}.checkboxes.{name}', commanding=commanding)
-            else:
-              return f'settings.{section}.checkboxes.{name}'
+            return find_info_by_name(f'settings.{section}.checkboxes.{name}', commanding=commanding)
 
         if part in all_teams:
-          if not get_path:
-            return find_info_by_name(f'roles_settings.all.{name}')
-          else:
-            return f'roles_settings.all.{name}'
+          return find_info_by_name(f'roles_settings.all.{name}')
 
         if len(parts) >= 2 and '#' in parts or '%' in parts:
           for i in range(len(parts)):
             if parts[i] in ('#', '%'):
               if parts[i-1] in teams_crewmate_roles:
-                if not get_path:
-                  return find_info_by_name(f'roles_settings.all.crewmate_roles.{name}', commanding=commanding)
-                else:
-                  return f'roles_settings.all.crewmate_roles.{name}'
+                return find_info_by_name(f'roles_settings.all.crewmate_roles.{name}', commanding=commanding)
               if parts[i-1] in teams_impostor_roles:
-                if not get_path:
-                  return find_info_by_name(f'roles_settings.all.impostor_roles.{name}', commanding=commanding)
-                else:
-                  return f'roles_settings.all.impostor_roles.{name}'
+                return find_info_by_name(f'roles_settings.all.impostor_roles.{name}', commanding=commanding)
               break
 
         if part in roles_settings_roles_all:
-          if not get_path:
-            return find_info_by_name(f'roles_settings.{name}', commanding=commanding)
-          else:
-            return f'roles_settings.{name}'
+          return find_info_by_name(f'roles_settings.{name}', commanding=commanding)
 
         for section in roles_settings_roles:
           if part in v['roles_settings'][section]['fields']:
-            if not get_path:
-              return find_info_by_name(f'roles_settings.{section}.fields.{name}', commanding=commanding)
-            else:
-              return f'roles_settings.{section}.fields.{name}'
+            return find_info_by_name(f'roles_settings.{section}.fields.{name}', commanding=commanding)
+
           if v['roles_settings'][section]['checkboxes'] is not None and part in v['roles_settings'][section]['checkboxes']:
-            if not get_path:
-              return find_info_by_name(f'roles_settings.{section}.checkboxes.{name}', commanding=commanding)
-            else:
-              return f'roles_settings.{section}.checkboxes.{name}'
+            return find_info_by_name(f'roles_settings.{section}.checkboxes.{name}', commanding=commanding)
 
       return None
   if isinstance(current, dict):
@@ -723,7 +433,7 @@ def goto(section: str):
   if section == 'edit':
     mouse.position = v['edit']
     mouse.click(pn.mouse.Button.left)
-    print('Went to edit')
+    printq('Went to edit')
   if section == 'settings':
     set_setting('settings')
     current_all_section = 'crewmate_roles'
@@ -747,7 +457,7 @@ def goto(section: str):
     if current_all_section != section:
       mouse.position = roles_settings_roles[section]['cords']
       mouse.click(pn.mouse.Button.left)
-      print('Section:', section)
+      printq('Section:', section)
       current_all_section = section
   slp(0.05)
 
@@ -761,13 +471,13 @@ def set_setting(name: str):
       if current_setting != 'settings':
         mouse.position = v['settings']['cords']
         mouse.click(pn.mouse.Button.left)
-        print(f'Setting: was: {current_setting}, became: {name}')
+        printq(f'Setting: was: {current_setting}, became: {name}')
         current_setting = 'settings'
     case 'roles_settings':
       if current_setting != 'roles_settings':
         mouse.position = v['roles_settings']['cords']
         mouse.click(pn.mouse.Button.left)
-        print(f'Setting: was: {current_setting}, became: {name}')
+        printq(f'Setting: was: {current_setting}, became: {name}')
         current_setting = 'roles_settings'
     case _:
       print('Unknown setting')
@@ -777,6 +487,7 @@ def set_setting(name: str):
 def calculate_clicks(info: FieldInfo | CheckboxInfo,
                      make: int | bool | float | str,
                      inner: bool | None = None,
+                     qac: tuple[str, Literal['#','%']] | None = None
                      ):
   if isinstance(inner, bool) and info[-1] == 'c':
     info = cast(CheckboxInfo, info)
@@ -803,15 +514,22 @@ def calculate_clicks(info: FieldInfo | CheckboxInfo,
       if isinstance(make, str):
         make = make.replace(',', '.')
         if make.isdigit():
-          new_val = int(make)
+          if isinstance(info[-2]['step'], int):
+            new_val = int(make)
+          else:
+            new_val = float(make)
+        elif isfloat(make):
+          new_val = float(make)
         else:
           print(f'Making value {make} is NaN')
           return
       else:
         new_val = make
-      if make in info[-2]['vars']:
+      if new_val in info[-2]['vars']:
         mid = info[-2]['vars'][len(info[-2]['vars'])//2]
         if new_val < mid:
+          if qac:
+            qacm.set_to_zero(qac[0], qac[1])
           mouse.position = info[-2]['minus']
           prev_val = info[-2]['vars'][0]
           for _ in range(len(info[-2]['vars'])-1):
@@ -900,13 +618,19 @@ def set_options(*options: tuple[Any, ...]):
     if info is not None and isinstance(info, tuple):
       if info[-1] == 'c':
         info = cast(CheckboxInfo, info)
-        goto(info[0])
+        goto(info[1])
         calculate_clicks(info, option[1], checkbox(info[-2]))
         slp(0.1)
       elif info[-1] == 'f':
         info = cast(FieldInfo, info)
-        goto(info[0])
-        calculate_clicks(info, option[1])
+        goto(info[1])
+        if info[0].split('.')[-2] in teams_crewmate_roles | teams_impostor_roles and info[0].split()[-1] == '#':
+          calculate_clicks(info, option[1], qac=(info[0].split()[-2], '#'))
+        elif info[0].split('.')[-2] in teams_crewmate_roles | teams_impostor_roles and info[0].split()[-1] == '%':
+          calculate_clicks(info, option[1], qac=(info[0].split()[-2], '%'))
+        else:
+          calculate_clicks(info, option[1])
+
     else:
       print(f'Wrong name: {option[0]}')
 
@@ -933,7 +657,7 @@ def scroll(was: Cords, will: Cords) -> bool:
       mouse.move(0, will[1] - was[1])
       slp(0.15)
       mouse.release(pn.mouse.Button.left)
-      print(f'Scroll: was: {was_name}, became: {will_name}')
+      printq(f'Scroll: was: {was_name}, became: {will_name}')
     elif not was_name or not will_name:
       print(f'Section cannot be found')
       return False
@@ -974,9 +698,9 @@ def iw4_settings(x: int, y: int, button: pn.mouse.Button, pressed: bool):
         ('settings.meetings.checkboxes.anonymous_votes', True),
         ('settings.meetings.checkboxes.confirm_ejects', True),
         ('settings.tasks.fields.task_bar_updates', 'Always'),
-        ('settings.tasks.fields.#common_tasks', 1),
-        ('settings.tasks.fields.#long_tasks', 1),
-        ('settings.tasks.fields.#short_tasks', 2),
+        ('settings.tasks.fields.#common', 1),
+        ('settings.tasks.fields.#long', 1),
+        ('settings.tasks.fields.#short', 2),
         ('settings.tasks.checkboxes.visual_tasks', True),
 
         ('roles_settings.all.crewmate_roles.engineer.#', 2),
@@ -1014,112 +738,110 @@ def iw4_settings(x: int, y: int, button: pn.mouse.Button, pressed: bool):
     )
 
 
-def view(script: list[str]) -> str:
-  if script:
-    for i in range(len(script)):
-      script[i] = script[i].replace(
-          '_options((', ' ').replace(',', '').replace('))', '')
-    return '\n'.join([f'{i+1}:{line}' for i, line in enumerate(script)])
+def normal_view():
+  clear_console()
+  print('\n'.join(manager.written))
+
+
+def script_view():
+  clear_console()
+  print(f'First edit enter -> {manager.script['data']['flag']}')
+  if manager.script['repr']:
+    print('\n'.join(f'{i+1}:{line}' for i,
+          line in enumerate(manager.script['repr'])))
   else:
-    return 'Empty'
+    print('Empty script...')
 
 
 def printq(*args: Any, **kwargs: Any):
-  global written
-  if kwargs.get('sep') is not None:
-    written.append(kwargs['sep'].join([str(arg) for arg in args]))
-  else:
-    written.append(' '.join([str(arg) for arg in args]))
+  if not manager.viewing:
+    if kwargs.get('sep') is not None:
+      manager.written.append(kwargs['sep'].join([str(arg) for arg in args]))
+    else:
+      manager.written.append(' '.join([str(arg) for arg in args]))
   print(*args, **kwargs)
 
 
-def inputq(string: str = '') -> Any:
-  global written
+def inputq(string: str = '') -> str:
+  if manager.viewing and not manager.running:
+    nline()
   inp = input(string)
-  written.append(string+inp)
+  if not manager.viewing:
+    if inp.lower().strip() not in ('view', 'v'):
+      manager.written.append(string+inp)
   return inp
 
 
-def commanding(inp: str):
-  global written, viewing
-  if not viewing:
-    if inp.lower() == 'v':
-      clear_console()
-      print(view(script))
-      viewing = True
-      return
-    else:
-      written.append(inp)
-      inp = inp.lower()
-      if inp == 'help':
-        printq(
-            '''Commands:
--------------------------------------------------------------------
-set {option name} {option value}
-v -> toggle code view
-rm {index} -> removes entered lines by index (-indexes supported)
-. -> top level dict
-save -> .json
-run -> middle button to start setting''')
-        return
-      parts = inp.split()
-      if len(parts) > 0 and parts[0] == 'set':
-        if len(parts) == 3:
-          full_name = find_info_by_name(parts[1], get_path=True)
-          if full_name is not None:
-            if isinstance((info := find_info_by_name(parts[1])), tuple) and info[-1] == 'f':
-              info = cast(FieldInfo, info)
-              if isinstance(info[-2]['step'], int) and int(parts[2]) in info[-2]['vars'] or isinstance(info[-2]['step'], float) and parts[2] in info[-2]['vars']:
-                script['exec'].append(
-                    f'set_options(({full_name}, {parts[2]}))')
-                script['repr'].append(f'set {parts[1]} {parts[2]}')
-                return
-              else:
-                printq('Setting value must be able to be set in the game')
-                return
-            if isinstance((info := find_info_by_name(parts[1])), tuple) and info[-1] == 'c':
-              if parts[2] in ('true','false'):
-                script['exec'].append(
-                    f'set_options(({full_name}, {parts[2]}))')
-                script['repr'].append(f'set {parts[1]} {parts[2]}')
-                return
-              else:
-                printq('Setting value must be able to be set in the game')
-                return
-          else:
-            printq(f'Name {parts[1]} does not exist')
-            return
-        else:
-          printq('Set command takes two arguments')
-          return
+def isfloat(s: str) -> bool:
+  try:
+    s = s.replace(',', '.')
+    float(s)
+    return (s.count('.') <= 1 and
+            s.replace('.', '').isdigit() and
+            len(s.replace('.', '')) > 0)
+  except (ValueError, AttributeError):
+    return False
 
-      if (info := find_info_by_name(inp, commanding=True)) is not None:
-        printq(info)
+
+def set_check(name: str, make: str) -> bool:
+  info = find_info_by_name(name)
+  if isinstance(info, tuple) and len(info) == 4:
+    if info[-1] == 'f':
+      info = cast(FieldInfo, info)
+      if isinstance(info[-2]['step'], int):
+        if make.isdigit() and int(make) in info[-2]['vars']:
+          return True
+        else:
+          printq(
+              f'Making value {make} must be compatible {info[-2]["vars"]}')
+          return False
+      if isinstance(info[-2]['step'], float):
+        make = make.replace(',', '.')
+        if isfloat(make) and float(make) in info[-2]['vars']:
+          return True
+        else:
+          printq(
+              f'Making value {make} must be compatible {info[-2]["vars"]}')
+          return False
+      if info[-2]['step'] == 'string':
+        if make in info[-2]['vars']:
+          return True
+        else:
+          printq(
+              f'Making value {make} must be compatible {info[-2]["vars"]}')
+          return False
+      if info[-2]['step'] == 'inf5':
+        if make == 'infinite' or make in info[-2]['vars'] or make.isdigit() and int(make) in info[-2]['vars']:
+          return True
+        else:
+          printq(
+              f'Making value {make} must be compatible {info[-2]["vars"]}')
+          return False
+    if info[-1] == 'c':
+      if make in ('true', 'false'):
+        return True
       else:
-        printq('Unknown command')
-  else:
-    if inp == 'v':
-      clear_console()
-      print('\n'.join(written))
-      viewing = False
-      return
-    else:
-      print("Type 'v' to exit viewing mode")
+        printq(
+            f'Making value {make} must be compatible {('true', 'false')}')
+        return False
+  printq(f'Incorrect name {name}')
+  return False
+
+
+def nline():
+  print(f'{len(manager.script['repr'])+1}:', end='')
 
 
 if __name__ == '__main__':
-  mouse = pn.mouse.Controller()
-  choice = check("Iaw4tch's settings", 'Load from file', 'Create new')
+  choice = check("Iaw4tch's settings", "Enter shell")
   match choice:
     case '1':
       print('Press middle button to start applying settings')
       with pn.mouse.Listener(on_click=iw4_settings) as listener:
         listener.join()
     case '2':
-      ...
-    case '3':
-      printq("Entering command shell. Try type 'help' for help")
-      while (inp:=input()).lower() not in ('e', 'exit'):
-        commanding(inp)
+      printq("Type 'help' for help")
+      while (inp := inputq().lower().strip()) not in ('e', 'exit'):
+        manager.commanding(inp)
     case _:
       pass
