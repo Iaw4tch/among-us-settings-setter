@@ -23,7 +23,7 @@ Download and run `.exe` file from [*Releases*](https://github.com/Iaw4tch/among-
 - `load`/`l`  - Load script from a file.
 - `run`/`r`   - Program launch (Middle mouse button to start applying).
 - `stop`/`st`  - Stop program execution.
-- `edit`    - Toggle flag "*First edit*". If True first middle button pressing will enter *Edit* tab first in game.
+- `edit`    - Toggle flag "*First edit*". If True middle button pressing will enter *Edit* tab first in game.
 - `exit`/`e`     - Leave program
 
 ### Dictionary info:

@@ -187,7 +187,6 @@ class ConsoleManager:
   def handle_run(self):
     if self.script['data']:
       self.running = True
-      self.goedit = True
       printq('Press middle button to start applying settings')
       with pn.mouse.Listener(on_click=self.script_run):
         while self.running:
@@ -198,9 +197,8 @@ class ConsoleManager:
   def script_run(self, x: int, y: int, button: pn.mouse.Button, pressed: bool):
     if button == pn.mouse.Button.middle and pressed:
       printq('Script started')
-      if self.script['data']['flag'] and self.goedit:
+      if self.script['data']['flag']:
         goto('edit')
-        self.goedit = False
       set_options(*self.script['data']['lines'])
       qacmanager.clear()
 
@@ -272,7 +270,6 @@ TOLERANCE = 30
 CHECKBOX_SHAPE = (60, 60)
 current_setting = 'standart_settings'
 current_all_section = 'crewmate_roles'
-goedit = True
 
 
 def check(*check_to: str) -> str:
@@ -498,7 +495,7 @@ def goto(section: str):
       mouse.click(pn.mouse.Button.left)
       printq('Section:', section)
       current_all_section = section
-  slp(0.05)
+  slp(0.0555)
 
 
 def set_setting(name: str):
@@ -735,37 +732,34 @@ def checkbox(cords: Cords) -> bool:
 
 
 def iw4_settings(x: int, y: int, button: pn.mouse.Button, pressed: bool):
-  global goedit
   if button == pn.mouse.Button.middle and pressed:
-    if goedit:
-      goto('edit')
-      goedit = False
+    goto('edit')
     set_options(
         ('settings.impostors.fields.#impostors', 3),
         ('settings.impostors.fields.kill_cooldown', 25),
         ('settings.impostors.fields.impostor_vision', 1.75),
-        ('settings.impostors.fields.kill_distance', 'short'),
+        ('settings.impostors.fields.kill_distance', 'medium'),
         ('settings.crewmates.fields.player_speed', 1.5),
         ('settings.crewmates.fields.crewmate_vision', 1),
         ('settings.meetings.fields.#emergency_meetings', 1),
-        ('settings.meetings.fields.emergency_cooldown', 20),
+        ('settings.meetings.fields.emergency_cooldown', 15),
         ('settings.meetings.fields.discussion_time', 30),
         ('settings.meetings.fields.voting_time', 30),
         ('settings.meetings.checkboxes.anonymous_votes', True),
         ('settings.meetings.checkboxes.confirm_ejects', True),
-        ('settings.tasks.fields.task_bar_updates', 'Always'),
+        ('settings.tasks.fields.task_bar_updates', 'meetings'),
         ('settings.tasks.fields.#common', 1),
         ('settings.tasks.fields.#long', 1),
         ('settings.tasks.fields.#short', 2),
-        ('settings.tasks.checkboxes.visual_tasks', True),
+        ('settings.tasks.checkboxes.visual_tasks', False),
 
-        ('roles_settings.all.crewmate_roles.engineer.#', 2),
+        ('roles_settings.all.crewmate_roles.engineer.#', 1),
         ('roles_settings.all.crewmate_roles.engineer.%', 100),
         ('roles_settings.all.crewmate_roles.guardian_angel.#', 5),
         ('roles_settings.all.crewmate_roles.guardian_angel.%', 100),
         ('roles_settings.all.crewmate_roles.scientist.#', 3),
         ('roles_settings.all.crewmate_roles.scientist.%', 100),
-        ('roles_settings.all.crewmate_roles.tracker.#', 2),
+        ('roles_settings.all.crewmate_roles.tracker.#', 1),
         ('roles_settings.all.crewmate_roles.tracker.%', 100),
         ('roles_settings.all.crewmate_roles.noisemaker.#', 3),
         ('roles_settings.all.crewmate_roles.noisemaker.%', 100),
