@@ -804,6 +804,7 @@ def iw4_settings(x: int, y: int, button: pn.mouse.Button, pressed: bool):
         ('roles_settings.phantom.fields.vanish_duration', 40),
         ('roles_settings.phantom.fields.vanish_cooldown', 15),
     )
+    qacmanager.clear()
 
 
 def normal_view():
