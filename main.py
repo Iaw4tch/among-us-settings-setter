@@ -185,7 +185,9 @@ class ConsoleManager:
       printq('Unknown command')
 
   def handle_run(self):
+    global current_setting
     if self.script['data']:
+      current_setting = 'standart_settings'
       self.running = True
       printq('Press middle button to start applying settings')
       with pn.mouse.Listener(on_click=self.script_run):
@@ -565,15 +567,15 @@ def calculate_clicks(info: FieldInfo | CheckboxInfo,
         if qac and (prev_val := qacmanager.get(qac)) is not None:
           offset = int((new_val-prev_val)//info[-2]['step'])
           if offset > 0:
+            mouse.position = info[-2]['plus']
             for _ in range(offset):
-              mouse.position = info[-2]['plus']
               mouse.click(pn.mouse.Button.left)
               slp(0.0355)
             qacmanager.set_val(qac, cast(int, new_val))
             return
           if offset < 0:
+            mouse.position = info[-2]['minus']
             for _ in range(-offset):
-              mouse.position = info[-2]['minus']
               mouse.click(pn.mouse.Button.left)
               slp(0.0355)
             qacmanager.set_val(qac, cast(int, new_val))
@@ -615,14 +617,28 @@ def calculate_clicks(info: FieldInfo | CheckboxInfo,
         mid = len(info[-2]['vars'])//2
         if index < mid:
           mouse.position = info[-2]['minus']
+          prev_val = 0
           for _ in range(len(info[-2]['vars'])-1):
             mouse.click(pn.mouse.Button.left)
             slp(0.035)
-        elif index > mid:
+          offset = index-prev_val
           mouse.position = info[-2]['plus']
+          for _ in range(offset):
+              mouse.click(pn.mouse.Button.left)
+              slp(0.0355)
+        else:
+          mouse.position = info[-2]['plus']
+          prev_val = 2
           for _ in range(len(info[-2]['vars'])-1):
             mouse.click(pn.mouse.Button.left)
             slp(0.035)
+          offset = prev_val-index
+          mouse.position = info[-2]['minus']
+          for _ in range(offset):
+              mouse.click(pn.mouse.Button.left)
+              slp(0.0355)
+        
+
       else:
         print(
             f'Making value {make} must be compatible {info[-2]["vars"]}')
@@ -732,7 +748,9 @@ def checkbox(cords: Cords) -> bool:
 
 
 def iw4_settings(x: int, y: int, button: pn.mouse.Button, pressed: bool):
+  global current_setting
   if button == pn.mouse.Button.middle and pressed:
+    current_setting = 'standart_settings'
     goto('edit')
     set_options(
         ('settings.impostors.fields.#impostors', 3),
