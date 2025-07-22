@@ -1,10 +1,14 @@
 from typing import TypedDict, Literal, Any, cast, Callable
 import numpy as np
 
+
 class Handlers(TypedDict):
-  args: dict[str|tuple[str, ...], Callable[[list[str]], None]]
-  noargs: dict[str|tuple[str, ...], Callable[[],None]]
+  args: dict[str | tuple[str, ...], Callable[[list[str]], None]]
+  noargs: dict[str | tuple[str, ...], Callable[[], None]]
+
+
 Cords = tuple[int, int]
+
 
 class FieldDict(TypedDict):
   minus: Cords
@@ -77,13 +81,16 @@ class SettingsDict(TypedDict):
   settings: SectionsDict
   roles_settings: RoleDict
 
+
 class DataDict(TypedDict):
   flag: bool
   lines: list[tuple[str, str]]
 
+
 class ScriptDict(TypedDict):
   data: DataDict
   repr: list[str]
+
 
 v: SettingsDict = {
     'edit': (1584, 751),
@@ -487,12 +494,14 @@ CheckboxInfo = tuple[str, str, Cords, Literal['c']]
 
 command_info = '''Commands:
 -------------------------------------------------------------------
-set {option name} {option value}
-view -> toggle code view (v)
-remove {index} -> removes entered lines by index (-indexes supported) (rm)
-. -> top level dict
-save -> saves script (.json) (s)
-load -> loads script from file (.json) (l)
-run -> middle button to start setting (r)
-stop -> stops script running (st)
-exit -> leaves the program (e)'''
+- help                                   - Display information about console commands.
+- view/v                                 - Toggle viewing mode.
+- set <parameter> <value>                - Set value to option.
+- remove/rm <index>                      - Remove line from script by index (-Indexes supported).
+- insert/ins <index> <parameter> <value> - Inserts a parameter into the index value and moves the parameters after the index forward.
+- save/s                                 - Save script info a file.
+- load/l                                 - Load script from a file.
+- run/r                                  - Program launch (Middle mouse button to start applying).
+- stop/st                                - Stop program execution.
+- edit                                   - Toggle flag "First edit". If True first middle button pressing will enter Edit tab first in game.
+- exit/e                                 - Leave program'''

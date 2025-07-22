@@ -24,7 +24,8 @@ class ConsoleManager:
     self.handlers: Handlers = {
         'args': {
             'set': self.handle_set,
-            ('remove', 'rm'): self.handle_rm,
+            ('remove', 'rm'): self.handle_remove,
+            ('insert', 'ins'): self.handle_insert,
         },
         'noargs': {
             'help': lambda: printq(command_info),
@@ -88,9 +89,9 @@ class ConsoleManager:
       if self.viewing:
         script_view()
 
-  def handle_rm(self, args: list[str]):
+  def handle_remove(self, args: list[str]):
     if len(args) != 1:
-      printq('Rm command takes one index argument')
+      printq('Remove command takes one index argument')
       return
     if not (args[0].isdigit() or (args[0].startswith('-') and args[0][1:].isdigit())):
       printq('Index must be an integer')
@@ -105,6 +106,29 @@ class ConsoleManager:
     idx = index - 1 if index > 0 else index
     self.script['data']['lines'].pop(idx)
     self.script['repr'].pop(idx)
+    if self.viewing:
+      script_view()
+
+  def handle_insert(self, args: list[str]):
+    if len(args) != 3:
+      printq('Insert command takes three arguments')
+      return
+    if not (args[0].isdigit() or (args[0].startswith('-') and args[0][1:].isdigit())):
+      printq('Index must be an integer')
+      return
+    if not set_check(args[1], args[2]):
+      return
+    index = int(args[0])
+    if index == 0:
+      printq('Unsupported index 0')
+      return
+    if abs(index) > len(self.script['repr']):
+      printq('Index out of script range')
+      return
+    idx = index - 1 if index > 0 else index
+    self.script['data']['lines'].insert(idx,
+                                        (cast(CheckboxInfo | FieldInfo, find_info_by_name(args[1]))[0], args[2]))
+    self.script['repr'].insert(idx, f'set {args[1]} {args[2]}')
     if self.viewing:
       script_view()
 
@@ -145,7 +169,8 @@ class ConsoleManager:
         try:
           load = json.load(f)
           self.script['data'] = load
-          self.script['repr'] = [f'set {name} {make}' for name, make in self.script['data']['lines']]
+          self.script['repr'] = [
+              f'set {name} {make}' for name, make in self.script['data']['lines']]
         except:
           printq('Damaged or unknown structure of the loading file')
     root.destroy()
@@ -176,12 +201,15 @@ class ConsoleManager:
       if self.script['data']['flag'] and self.goedit:
         goto('edit')
         self.goedit = False
-      eval(
-          f"set_options({','.join([f"('{line[0]}','{line[1]}')" for line in self.script['data']['lines']])})")
+      set_options(*self.script['data']['lines'])
+      qacmanager.clear()
 
   def handle_stop(self):
-    printq('Script finished')
-    self.running = False
+    if self.running:
+      printq('Script finished')
+      self.running = False
+    else:
+      printq('You cannot stop a script that is not running')
 
   def handle_edit(self):
     if self.script['data']['flag']:
@@ -194,7 +222,7 @@ class ConsoleManager:
 
 class QACManager:
   def __init__(self):
-    self.qac: dict[str, dict[str, int|None]] = {
+    self.qac: dict[str, dict[str, int | None]] = {
         'engineer': {'#': None, '%': None},
         'guardian_angel': {'#': None, '%': None},
         'scientist': {'#': None, '%': None},
@@ -203,30 +231,41 @@ class QACManager:
         'shapeshifter': {'#': None, '%': None},
         'phantom': {'#': None, '%': None},
     }
-  def set_to_zero(self, name: str, t: Literal['#','%']):
-    if name in self.qac:
-      self.qac[name][t]=0
-      self.update()
+
+  def set_val(self, qac: tuple[str, Literal['#', '%']], val: int):
+    role, t = qac
+    if role in self.qac:
+      if val == 0:
+        self.qac[role]['%'] = 0
+        self.qac[role]['#'] = 0
+      else:
+        self.qac[role][t] = val
+        self.update()
     else:
-      printq(f'Name {name} is not in qac dict')
+      printq(f'Role {role} is not in a role')
+
   def update(self):
     for role in self.qac:
-      if self.qac[role]['#']==0:
-        self.qac[role]['%']=50
-      if self.qac[role]['%']==0:
-        self.qac[role]['#'] =1
+      if self.qac[role]['#'] is not None and self.qac[role]['#'] != 0 and self.qac[role]['%'] == 0:
+        self.qac[role]['%'] = 50
+      elif self.qac[role]['%'] is not None and self.qac[role]['%'] != 0 and self.qac[role]['#'] == 0:
+        self.qac[role]['#'] = 1
+
   def clear(self):
     for role in self.qac:
-      self.qac[role]['#']=None
+      self.qac[role]['#'] = None
       self.qac[role]['%'] = None
-  # def check_get_other(self):
-    
+
+  def get(self, qac: tuple[str, Literal['#', '%']]) -> int | None:
+    name, t = qac
+    if name in self.qac:
+      return self.qac[name][t]
 
 
 windll.user32.SetProcessDPIAware()
 mouse = pn.mouse.Controller()
 manager = ConsoleManager()
-qacm=QACManager()
+qacmanager = QACManager()
 current_settings_section = v['settings']['impostors']['cords']
 TEAL = (44, 243, 198)
 TOLERANCE = 30
@@ -487,7 +526,7 @@ def set_setting(name: str):
 def calculate_clicks(info: FieldInfo | CheckboxInfo,
                      make: int | bool | float | str,
                      inner: bool | None = None,
-                     qac: tuple[str, Literal['#','%']] | None = None
+                     qac: tuple[str, Literal['#', '%']] | None = None
                      ):
   if isinstance(inner, bool) and info[-1] == 'c':
     info = cast(CheckboxInfo, info)
@@ -526,20 +565,38 @@ def calculate_clicks(info: FieldInfo | CheckboxInfo,
       else:
         new_val = make
       if new_val in info[-2]['vars']:
+        if qac and (prev_val := qacmanager.get(qac)) is not None:
+          offset = int((new_val-prev_val)//info[-2]['step'])
+          if offset > 0:
+            for _ in range(offset):
+              mouse.position = info[-2]['plus']
+              mouse.click(pn.mouse.Button.left)
+              slp(0.0355)
+            qacmanager.set_val(qac, cast(int, new_val))
+            return
+          if offset < 0:
+            for _ in range(-offset):
+              mouse.position = info[-2]['minus']
+              mouse.click(pn.mouse.Button.left)
+              slp(0.0355)
+            qacmanager.set_val(qac, cast(int, new_val))
+            return
         mid = info[-2]['vars'][len(info[-2]['vars'])//2]
         if new_val < mid:
-          if qac:
-            qacm.set_to_zero(qac[0], qac[1])
           mouse.position = info[-2]['minus']
           prev_val = info[-2]['vars'][0]
           for _ in range(len(info[-2]['vars'])-1):
             mouse.click(pn.mouse.Button.left)
             slp(0.0355)
+          if qac:
+            qacmanager.set_val(qac, 0)
           offset = int((new_val-prev_val)//info[-2]['step'])
           mouse.position = info[-2]['plus']
           for _ in range(offset):
             mouse.click(pn.mouse.Button.left)
             slp(0.0355)
+          if qac:
+            qacmanager.set_val(qac, cast(int, new_val))
         else:
           mouse.position = info[-2]['plus']
           prev_val = info[-2]['vars'][-1]
@@ -607,7 +664,7 @@ def calculate_clicks(info: FieldInfo | CheckboxInfo,
             f'Making value {make} must be compatible {info[-2]["vars"]}')
 
 
-def set_options(*options: tuple[Any, ...]):
+def set_options(*options: tuple[str, Any]):
   """Universal function for setting needed values to options
 
   Args:
@@ -624,10 +681,9 @@ def set_options(*options: tuple[Any, ...]):
       elif info[-1] == 'f':
         info = cast(FieldInfo, info)
         goto(info[1])
-        if info[0].split('.')[-2] in teams_crewmate_roles | teams_impostor_roles and info[0].split()[-1] == '#':
-          calculate_clicks(info, option[1], qac=(info[0].split()[-2], '#'))
-        elif info[0].split('.')[-2] in teams_crewmate_roles | teams_impostor_roles and info[0].split()[-1] == '%':
-          calculate_clicks(info, option[1], qac=(info[0].split()[-2], '%'))
+        if info[0].split('.')[-2] in teams_crewmate_roles | teams_impostor_roles and info[0].split('.')[-1] in ('#', '%'):
+          calculate_clicks(info, option[1], qac=(
+              info[0].split('.')[-2], cast(Literal['#', '%'], info[0].split('.')[-1])))
         else:
           calculate_clicks(info, option[1])
 
