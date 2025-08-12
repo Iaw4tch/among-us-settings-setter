@@ -1,5 +1,24 @@
-from typing import TypedDict, Literal, Any, cast, Callable
+from typing import TypedDict, Literal, Any, cast, Callable, Hashable
 import numpy as np
+from screeninfo import get_monitors
+
+width_d = 1920/get_monitors()[0].width
+height_d = 1080/get_monitors()[0].height
+
+
+def recount_pixels(x: int, y: int) -> tuple[int, int]:
+  return (round(x/width_d), round(y/height_d))
+
+
+def recursive_change(data: Any) -> Any:
+  if isinstance(data, dict):
+    data = cast(dict[Hashable, Any], data)
+    return {k: recursive_change(v) for k, v in data.items()}
+  elif isinstance(data, tuple):
+    data = cast(tuple[Any, ...], data)
+    if len(data) == 2 and isinstance(data[0], int) and isinstance(data[1], int):
+      return recount_pixels(data[0], data[1])
+  return data
 
 
 class Handlers(TypedDict):
@@ -91,6 +110,9 @@ class ScriptDict(TypedDict):
   data: DataDict
   repr: list[str]
 
+
+FieldInfo = tuple[str, str, FieldDict, Literal['f']]
+CheckboxInfo = tuple[str, str, Cords, Literal['c']]
 
 v: SettingsDict = {
     'edit': (1584, 751),
@@ -458,50 +480,219 @@ v: SettingsDict = {
 
 }
 
-settings_sections = cast(dict[str, SectionDict], {
+v = recursive_change(v)
+
+SETTINGS_SECTIONS = cast(dict[str, SectionDict], {
     k: val
     for k, val in v['settings'].items()
     if k != 'cords'
 })
-roles_settings_roles = cast(dict[str, SectionDict], {
+ROLES_SETTINGS_ROLES = cast(dict[str, SectionDict], {
     k: val
     for k, val in v['roles_settings'].items()
     if k != 'all' and k != 'cords'
 })
-roles_settings_roles_all = cast(dict[str, ScrollForAllDict | SectionDict], {
+ROLES_SETTINGS_ROLES_ALL = cast(dict[str, ScrollForAllDict | SectionDict], {
     k: val
     for k, val in v['roles_settings'].items()
     if k != 'cords'
 })
-all_teams = cast(dict[str, CrewmateRolesDict | ImpostorRolesDict], {
+ALL_TEAMS = cast(dict[str, CrewmateRolesDict | ImpostorRolesDict], {
     k: val
     for k, val in v['roles_settings']['all'].items()
     if k != 'cords'
 })
-teams_crewmate_roles = cast(dict[str, QuantityAndChance], {
+TEAMS_CREWMATE_ROLES = cast(dict[str, QuantityAndChance], {
     k: val
     for k, val in v['roles_settings']['all']['crewmate_roles'].items()
     if k != 'cords'
 })
-teams_impostor_roles = cast(dict[str, QuantityAndChance], {
+TEAMS_IMPOSTOR_ROLES = cast(dict[str, QuantityAndChance], {
     k: val
     for k, val in v['roles_settings']['all']['impostor_roles'].items()
     if k != 'cords'
 })
 
-FieldInfo = tuple[str, str, FieldDict, Literal['f']]
-CheckboxInfo = tuple[str, str, Cords, Literal['c']]
+PARAMETERS_NAMES: list[str] = [
+    '#impostors',
+    'kill_cooldown',
+    'kill_distance',
+    'impostor_vision',
+    'player_speed',
+    'crewmate_vision',
+    '#emergency_meetings',
+    'emergency_cooldown',
+    'discussion_time',
+    'voting_time',
+    'anonymous_votes',
+    'confirm_ejects',
+    '#common',
+    '#long',
+    '#short',
+    'task_bar_updates',
+    'visual_tasks',
+    'engineer.#',
+    'engineer.%',
+    'guardian_angel.#',
+    'guardian_angel.%',
+    'scientist.#',
+    'scientist.%',
+    'tracker.#',
+    'tracker.%',
+    'noisemaker.#',
+    'noisemaker.%',
+    'shapeshifter.#',
+    'shapeshifter.%',
+    'phantom.#',
+    'phantom.%',
+    'vent_use_cooldown',
+    'max_time_in_vents',
+    'protect_cooldown',
+    'protect_duration',
+    'protect_visible_to_impostors',
+    'vitals_display_cooldown',
+    'battery_duration',
+    'tracking_cooldown',
+    'tracking_delay',
+    'tracking_duration',
+    'impostors_get_alert',
+    'alert_duration',
+    'leave_shapeshifting_evidence',
+    'shapeshift_duration',
+    'shapeshift_cooldown',
+    'vanish_duration',
+    'vanish_cooldown'
+]
+PARTS: list[str] = ['impostor_vision',
+                    'emergency_cooldown',
+                    'tasks',
+                    'edit',
+                    'tracking_delay',
+                    'protect_visible_to_impostors',
+                    'protect_duration',
+                    'vitals_display_cooldown',
+                    '#emergency_meetings',
+                    'meetings',
+                    '#common',
+                    'engineer',
+                    'discussion_time',
+                    'guardian_angel',
+                    'task_bar_updates',
+                    'plus',
+                    'visual_tasks',
+                    'phantom',
+                    'protect_cooldown',
+                    '#impostors',
+                    'checkboxes',
+                    '#',
+                    'kill_distance',
+                    'shapeshifter',
+                    'player_speed',
+                    'battery_duration',
+                    'shapeshift_cooldown',
+                    'noisemaker',
+                    'max_time_in_vents',
+                    'kill_cooldown',
+                    'confirm_ejects',
+                    'anonymous_votes',
+                    '#short',
+                    'fields',
+                    'cords',
+                    'all',
+                    'scientist',
+                    'vent_use_cooldown',
+                    'impostors',
+                    'voting_time',
+                    'leave_shapeshifting_evidence',
+                    'shapeshift_duration',
+                    'crewmates',
+                    'tracker',
+                    '%',
+                    'crewmate_roles',
+                    'roles_settings',
+                    'impostor_roles',
+                    'alert_duration',
+                    'minus',
+                    'vanish_cooldown',
+                    'tracking_duration',
+                    'impostors_get_alert',
+                    'settings',
+                    'step',
+                    '#long',
+                    'tracking_cooldown',
+                    'crewmate_vision',
+                    'vars',
+                    'vanish_duration']
+
+FINDABLE_NAMES: list[str] = [
+    'settings',
+    'impostors',
+    '#impostors',
+    'kill_cooldown',
+    'impostor_vision',
+    'kill_distance',
+    'crewmates',
+    'player_speed',
+    'crewmate_vision',
+    'meetings',
+    '#emergency_meetings',
+    'emergency_cooldown',
+    'discussion_time',
+    'voting_time',
+    'tasks',
+    'task_bar_updates',
+    '#common',
+    '#long',
+    '#short',
+    'roles_settings',
+    'all',
+    'crewmate_roles',
+    'engineer',
+    'guardian_angel',
+    'scientist',
+    'tracker',
+    'noisemaker',
+    'impostor_roles',
+    'shapeshifter',
+    'phantom',
+    'engineer',
+    'vent_use_cooldown',
+    'max_time_in_vents',
+    'guardian_angel',
+    'protect_cooldown',
+    'protect_duration',
+    'scientist',
+    'vitals_display_cooldown',
+    'battery_duration',
+    'tracker',
+    'tracking_cooldown',
+    'tracking_delay',
+    'tracking_duration',
+    'noisemaker',
+    'alert_duration',
+    'shapeshifter',
+    'shapeshift_duration',
+    'shapeshift_cooldown',
+    'phantom',
+    'vanish_duration',
+    'vanish_cooldown'
+]
 
 command_info = '''Commands:
--------------------------------------------------------------------
-- help                                   - Display information about console commands.
-- view/v                                 - Toggle viewing mode.
-- set <parameter> <value>                - Set value to option.
-- remove/rm <index>                      - Remove line from script by index (-Indexes supported).
-- insert/ins <index> <parameter> <value> - Inserts a parameter into the index value and moves the parameters after the index forward.
-- save/s                                 - Save script info a file.
-- load/l                                 - Load script from a file.
-- run/r                                  - Program launch (Middle mouse button to start applying).
-- stop/st                                - Stop program execution.
+--------------------------------------------------------------------------------------------------------------------------------------------
+- help                                   - Display information about shell commands.
+- <parameter> <value>                    - Set parameter to value.
+- remove/rm <index>                      - Remove line from script by index (index cannot be 0, -indexes supported).
+- insert/ins <index> <parameter> <value> - Insert a parameter into the index value, moves the parameters after the index forward.
+- replace/r <index> <parameter <value>   - Replace existing line with an.
+- save/s                                 - Save script info a file (GUI).
+- load/l                                 - Load script from a file (GUI).
+- run                                    - Program launch (Middle mouse button to start applying).
+- stop                                   - Stop program execution.
 - edit                                   - Toggle flag "First edit". If True first middle button pressing will enter Edit tab first in game.
+- .                                      - View top level dict
+- <Enter>                                - Display written script
 - exit/e                                 - Leave program'''
+TEAL = (44, 243, 198)  # Cyan checkbox color
+TOLERANCE = 30  # Just in case
+CHECKBOX_SHAPE = (60, 60)  # Checkbox shape in pixels in 1080p

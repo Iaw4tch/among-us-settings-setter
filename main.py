@@ -1,144 +1,185 @@
-import pynput as pn  # For mouse control
-from time import sleep as slp  # For delay
-from ctypes import windll  # For windows scale disable
-import numpy as np  # For 3d color array
-from PIL import ImageGrab  # For grabbing images
-from typing import Any, Union, cast  # Type annotations
-from os import system, name
-from data import *
-import tkinter as tk
-from tkinter import filedialog
-import json
-import ctypes
-from threading import Thread
+import pynput as pn  # Mouse control
+from time import sleep as slp  # Delay
+import ctypes   # Windows scale disable, window control
+import numpy as np  # 3d color array
+from PIL import ImageGrab  # Grabbing images
+from typing import Any, Union, cast, Hashable  # Type annotations
+from os import system, name  # Console clear
+from data import *  # Info messages and type annotations
+import tkinter as tk  # GUI
+from tkinter import filedialog  # Warning
+import json  # Saving script
+from threading import Thread  # Opportunity to stop launched script
+from difflib import get_close_matches  # Command prompter
 
 
 class ConsoleManager:
-  can_run = True
-
   def __init__(self):
     self.viewing = False
     self.script: ScriptDict = {
         'data': {'flag': False, 'lines': []}, 'repr': []}
-    self.written: list[str] = []
     self.handlers: Handlers = {
         'args': {
-            'set': self.handle_set,
             ('remove', 'rm'): self.handle_remove,
             ('insert', 'ins'): self.handle_insert,
+            ('replace', 'r'): self.handle_replace,
         },
         'noargs': {
-            'help': lambda: printq(command_info),
-            ('view', 'v'): self.handle_v,
+            'help': lambda: print(command_info),
+            'edit': self.handle_edit,
+            'run': lambda: Thread(target=self.handle_run).start(),
+            'stop': self.handle_stop,
             ('save', 's'): self.handle_save,
             ('load', 'l'): self.handle_load,
-            ('run', 'r'): lambda: Thread(target=self.handle_run).start(),
-            ('stop', 'st'): self.handle_stop,
-            ('edit'): self.handle_edit,
+            ('exit', 'e'): lambda: setattr(self, 'can_repeat_commanding', False),
         }
     }
     self.running = False
+    self.can_repeat_commanding = True
+    self.commands: list[str] = []
+    for c in self.handlers['args'] | self.handlers['noargs']:
+      if isinstance(c, str):
+        self.commands.append(c)
+      else:
+        self.commands.append(c[0])
 
   def commanding(self, inp: str):
+    inp = inp.replace('>', '')
     parts = inp.split()
     if len(parts) > 0:
-      cmd = parts[0]
-      args = parts[1:]
-      cmd_found = False
-      for command in self.handlers['noargs']:
-        if isinstance(command, str):
-          if cmd == command:
-            self.handlers['noargs'][command]()
-            cmd_found = True
-            break
-        else:
-          if cmd in command:
-            self.handlers['noargs'][command]()
-            cmd_found = True
-            break
-      if not cmd_found:
-        for command in self.handlers['args']:
+      parameter = True
+      for command in self.handlers['noargs'] | self.handlers['args']:
+        if parts[0] in command:
+          parameter = False
+          break
+      if parameter and len(parts) == 2:
+        self.handle_set(parts[0], parts[1])
+      else:
+        cmd = parts[0]
+        args = parts[1:]
+        cmd_found = False
+        for command in self.handlers['noargs']:
           if isinstance(command, str):
             if cmd == command:
-              self.handlers['args'][command](args)
+              self.handlers['noargs'][command]()
               cmd_found = True
               break
           else:
             if cmd in command:
-              self.handlers['args'][command](args)
+              self.handlers['noargs'][command]()
               cmd_found = True
               break
-      if not cmd_found:
-        self.handle_info_lookup(inp)
+        if not cmd_found:
+          for command in self.handlers['args']:
+            if isinstance(command, str):
+              if cmd == command:
+                self.handlers['args'][command](args)
+                cmd_found = True
+                break
+            else:
+              if cmd in command:
+                self.handlers['args'][command](args)
+                cmd_found = True
+                break
+        if not cmd_found:
+          self.find_probable_compilance(cmd)
     else:
-      clear_console()
-      if manager.viewing:
-        script_view()
-      else:
-        manager.written.pop()
-        normal_view()
+      review()
 
-  def handle_set(self, args: list[str]):
-    if len(args) != 2:
-      printq('Set command takes two arguments')
-      return
-    if set_check(args[0], args[1]):
+  def get_close_command(self, cmd: str) -> bool:
+    command_match = get_close_matches(cmd, self.commands)
+    if '.' not in cmd:
+      if len(command_match) == 1:
+        print(f"Unknown command, did you mean <{command_match[0]}>?")
+        return True
+      elif len(command_match) > 1:
+        print(
+            f"Unknown command, did you mean {('?'+'\n'+' '*30).join(map(lambda x: f"<{x}>", command_match))}?")
+        return True
+      else:
+        return False
+    return False
+
+  def get_close_name(self, name: str) -> bool:
+    name_match = get_close_matches(name, list(
+        set(FINDABLE_NAMES) | set(PARAMETERS_NAMES)))
+    if len(name_match) == 1:
+      print(f"Unknown name, did you mean '{name_match[0]}'?")
+      return True
+    elif len(name_match) > 1:
+      print(
+          f"Unknown name, did you mean {('?'+'\n'+' '*27).join(map(lambda x: f"<{x}>", name_match))}?")
+      return True
+    return False
+
+  def get_close_part(self, part: str) -> str:
+    part_match = get_close_matches(part, PARTS, n=1)
+    if part_match:
+      return part_match[0]
+    return ''
+
+  def find_probable_compilance(self, cmd: str):
+    if not self.get_close_command(cmd):
+      if (info := find_info_by_name(inp, commanding=True)) is not None:
+        print(info)
+      else:
+        probable: list[str] = []
+        parts = cmd.split('.')
+        no_real_info = True
+        for part in parts:
+          if part in PARTS:
+            probable.append(part)
+          else:
+            if p := self.get_close_part(part):
+              probable.append(f'<{p}>')
+              no_real_info = False
+            else:
+              probable.append('<Unable to find>')
+        if not no_real_info:
+          print(f'Unknown object, did you mean {'.'.join(probable)}?')
+        else:
+          if not self.get_close_name(cmd):
+            print('Cannot find information about this')
+
+  def handle_set(self, parameter: str, value: str):
+    if set_check(parameter, value):
       self.script['data']['lines'].append(
-          (cast(CheckboxInfo | FieldInfo, find_info_by_name(args[0]))[0], args[1]))
-      self.script['repr'].append(f'set {args[0]} {args[1]}')
-      if self.viewing:
-        script_view()
+          (cast(CheckboxInfo | FieldInfo, find_info_by_name(parameter))[0], value))
+      self.script['repr'].append(f'{parameter} > {value}')
+      review()
 
   def handle_remove(self, args: list[str]):
     if len(args) != 1:
-      printq('Remove command takes one index argument')
+      print('Remove command takes one index argument')
       return
     if not (args[0].isdigit() or (args[0].startswith('-') and args[0][1:].isdigit())):
-      printq('Index must be an integer')
+      print('Index must be an integer')
       return
     index = int(args[0])
-    if index == 0:
-      printq('Unsupported index 0')
-      return
-    if abs(index) > len(self.script['repr']):
-      printq('Index out of script range')
+    if not valid_index(index, self.script['repr']):
       return
     idx = index - 1 if index > 0 else index
     self.script['data']['lines'].pop(idx)
     self.script['repr'].pop(idx)
-    if self.viewing:
-      script_view()
+    review()
 
   def handle_insert(self, args: list[str]):
     if len(args) != 3:
-      printq('Insert command takes three arguments')
+      print('Insert command takes three arguments')
       return
     if not (args[0].isdigit() or (args[0].startswith('-') and args[0][1:].isdigit())):
-      printq('Index must be an integer')
-      return
-    if not set_check(args[1], args[2]):
+      print('Index must be an integer')
       return
     index = int(args[0])
-    if index == 0:
-      printq('Unsupported index 0')
+    if not valid_index(index, self.script['repr']):
       return
-    if abs(index) > len(self.script['repr']):
-      printq('Index out of script range')
+    if not set_check(args[1], args[2]):
       return
     idx = index - 1 if index > 0 else index
     self.script['data']['lines'].insert(idx,
                                         (cast(CheckboxInfo | FieldInfo, find_info_by_name(args[1]))[0], args[2]))
-    self.script['repr'].insert(idx, f'set {args[1]} {args[2]}')
-    if self.viewing:
-      script_view()
-
-  def handle_v(self):
-    if self.viewing:
-      normal_view()
-      self.viewing = False
-    else:
-      script_view()
-      self.viewing = True
+    self.script['repr'].insert(idx, f'{args[1]} > {args[2]}')
+    review()
 
   def handle_save(self):
     root = tk.Tk()
@@ -151,6 +192,7 @@ class ConsoleManager:
     if file_path:
       with open(file_path, 'w', encoding='utf-8') as f:
         json.dump(self.script['data'], f, indent=2, ensure_ascii=True)
+        print('Successfuly saved')
     root.destroy()
     ctypes.windll.user32.SetForegroundWindow(
         ctypes.windll.kernel32.GetConsoleWindow()
@@ -169,36 +211,37 @@ class ConsoleManager:
         try:
           load = json.load(f)
           self.script['data'] = load
-          self.script['repr'] = [
-              f'set {name} {make}' for name, make in self.script['data']['lines']]
+          self.script['repr'].clear()
+          for name, make in self.script['data']['lines']:
+            splitted = name.split('.')
+            if splitted in ('#', '%'):
+              name = splitted[-2]+'.'+splitted[-1]
+            else:
+              name = splitted[-1]
+            self.script['repr'].append(f'{name} > {make}')
         except:
-          printq('Damaged or unknown structure of the loading file')
+          print('Damaged or unknown structure of the loading file')
     root.destroy()
     ctypes.windll.user32.SetForegroundWindow(
         ctypes.windll.kernel32.GetConsoleWindow()
     )
-
-  def handle_info_lookup(self, inp: str):
-    if (info := find_info_by_name(inp, commanding=True)) is not None:
-      printq(info)
-    else:
-      printq('Unknown command')
+    review()
 
   def handle_run(self):
     global current_setting
     if self.script['data']:
       current_setting = 'standart_settings'
       self.running = True
-      printq('Press middle button to start applying settings')
+      print('Press middle button to start applying settings')
       with pn.mouse.Listener(on_click=self.script_run):
         while self.running:
           slp(0.1)
     else:
-      printq('Empty script, cannot run')
+      print('Empty script, cannot run')
 
   def script_run(self, x: int, y: int, button: pn.mouse.Button, pressed: bool):
     if button == pn.mouse.Button.middle and pressed:
-      printq('Script started')
+      print('Script started')
       if self.script['data']['flag']:
         goto('edit')
       set_options(*self.script['data']['lines'])
@@ -206,18 +249,35 @@ class ConsoleManager:
 
   def handle_stop(self):
     if self.running:
-      printq('Script finished')
+      print('Script finished')
       self.running = False
     else:
-      printq('You cannot stop a script that is not running')
+      print('You cannot stop a script that is not running')
 
   def handle_edit(self):
     if self.script['data']['flag']:
       self.script['data']['flag'] = False
     else:
       self.script['data']['flag'] = True
-    if self.viewing:
-      script_view()
+    review()
+
+  def handle_replace(self, args: list[str]):
+    if len(args) != 3:
+      print('Replace command takes three arguments')
+      return
+    if not (args[0].isdigit() or (args[0].startswith('-') and args[0][1:].isdigit())):
+      print('Index must be an integer')
+      return
+    index = int(args[0])
+    if not valid_index(index, self.script['repr']):
+      return
+    if not set_check(args[1], args[2]):
+      return
+    idx = index - 1 if index > 0 else index
+    self.script['data']['lines'][idx] = cast(
+        CheckboxInfo | FieldInfo, find_info_by_name(args[1]))[0], args[2]
+    self.script['repr'][idx] = f'{args[1]} > {args[2]}'
+    review()
 
 
 class QACManager:
@@ -242,7 +302,7 @@ class QACManager:
         self.qac[role][t] = val
         self.update()
     else:
-      printq(f'Role {role} is not in a role')
+      print(f'Role {role} is not in a role')
 
   def update(self):
     for role in self.qac:
@@ -262,16 +322,22 @@ class QACManager:
       return self.qac[name][t]
 
 
-windll.user32.SetProcessDPIAware()
+ctypes.windll.user32.SetProcessDPIAware()
 mouse = pn.mouse.Controller()
-manager = ConsoleManager()
 qacmanager = QACManager()
 current_settings_section = v['settings']['impostors']['cords']
-TEAL = (44, 243, 198)
-TOLERANCE = 30
-CHECKBOX_SHAPE = (60, 60)
 current_setting = 'standart_settings'
 current_all_section = 'crewmate_roles'
+
+
+def valid_index(index: int, script: list[Any]) -> bool:
+  if index == 0:
+    print('Unsupported index 0')
+    return False
+  if abs(index)-1 > len(script):
+    print('Index out of script range')
+    return False
+  return True
 
 
 def check(*check_to: str) -> str:
@@ -302,13 +368,13 @@ def check(*check_to: str) -> str:
   again: list[str] = []
   for i, string in enumerate(check_to):
     again.append(f'{i+1} -> {string}')
-  check_what = inputq('\n'.join(again)+'\n> ').strip()
+  check_what = input('\n'.join(again)+'\n> ').strip()
   while True:
     if check_what in map(str, range(1, len(check_to)+1)):
       break
     else:
-      printq('Invalid input')
-      check_what = inputq('\n'.join(again)+'\n> ').strip()
+      print('Invalid input')
+      check_what = input('\n'.join(again)+'\n> ').strip()
   return check_what
 
 
@@ -370,84 +436,76 @@ def find_info_by_name(name: str, commanding: bool = False) -> Union[
   if name.startswith('v.'):
     name = name[2:]
   if name == 'v' or name == '.':
-    return list(cast(list[str], v.keys()))
+    return '{'+',\n'.join(v.keys())+'}'
   if name.startswith('.'):
     name = name[1:]
   current: Any = v
   parts = name.split('.')
   if not commanding:
-    try:
-      if len(parts) == 4 and parts[0] == 'settings' and parts[1] in settings_sections and parts[2] == 'fields' and parts[3] in settings_sections[parts[1]]['fields']:
-        section = parts[1]
-        field = settings_sections[section]['fields'][parts[3]]
-        return name, section, field, 'f'
-    except:
-      pass
-    try:
-      if len(parts) == 4 and parts[0] == 'settings' and parts[1] in settings_sections and parts[2] == 'checkboxes' and parts[3] in cast(dict[str, Cords], settings_sections[parts[1]]['checkboxes']):
-        section = parts[1]
-        checkbox = cast(dict[str, Cords], settings_sections[section]['checkboxes'])[
-            parts[3]]
-        return name, section, checkbox, 'c'
-    except:
-      pass
-    try:
-      if len(parts) == 5 and parts[0] == 'roles_settings' and parts[1] == 'all' and parts[2] in all_teams and parts[3] in {
-          k: val
-          for k, val in all_teams[parts[2]].items()
-          if k != 'cords'
-      } and parts[4] in ('#', '%'):
-        team = parts[2]
-        role = parts[3]
-        cont = parts[4]
-        field = cast(FieldDict, all_teams[team][role][cont])
-        return name, team, field, 'f'
-    except:
-      pass
-    try:
-      if len(parts) == 4 and parts[0] == 'roles_settings' and parts[1] in roles_settings_roles and parts[2] in 'fields' and parts[3] in roles_settings_roles[parts[1]]['fields']:
-        role = parts[1]
-        return name, role, roles_settings_roles[role]['fields'][parts[3]], 'f'
-    except:
-      pass
-    try:
-      if len(parts) == 4 and parts[0] == 'roles_settings' and parts[1] in roles_settings_roles and parts[2] in 'checkboxes' and parts[3] in cast(dict[str, Cords], roles_settings_roles[parts[1]]['checkboxes']):
-        role = parts[1]
-        return name, role,  cast(dict[str, Cords], roles_settings_roles[parts[1]]['checkboxes'])[parts[3]], 'c'
-    except:
-      pass
+    if len(parts) == 4:
+      if parts[0] == 'settings':
+        if parts[1] in SETTINGS_SECTIONS and parts[2] == 'fields' and parts[3] in SETTINGS_SECTIONS[parts[1]]['fields']:
+          section = parts[1]
+          field = SETTINGS_SECTIONS[section]['fields'][parts[3]]
+          return name, section, field, 'f'
+
+        if parts[1] in SETTINGS_SECTIONS and parts[2] == 'checkboxes' and parts[3] in cast(dict[str, Cords], SETTINGS_SECTIONS[parts[1]]['checkboxes']):
+          section = parts[1]
+          checkbox = cast(dict[str, Cords], SETTINGS_SECTIONS[section]['checkboxes'])[
+              parts[3]]
+          return name, section, checkbox, 'c'
+
+      if parts[0] == 'roles_settings':
+        if parts[1] in ROLES_SETTINGS_ROLES and parts[2] in 'fields' and parts[3] in ROLES_SETTINGS_ROLES[parts[1]]['fields']:
+          role = parts[1]
+          return name, role, ROLES_SETTINGS_ROLES[role]['fields'][parts[3]], 'f'
+
+        if parts[1] in ROLES_SETTINGS_ROLES and parts[2] in 'checkboxes' and parts[3] in cast(dict[str, Cords], ROLES_SETTINGS_ROLES[parts[1]]['checkboxes']):
+          role = parts[1]
+          return name, role,  cast(dict[str, Cords], ROLES_SETTINGS_ROLES[parts[1]]['checkboxes'])[parts[3]], 'c'
+
+    if len(parts) == 5 and parts[0] == 'roles_settings' and parts[1] == 'all' and parts[2] in ALL_TEAMS and parts[3] in {
+        k: val
+        for k, val in ALL_TEAMS[parts[2]].items()
+        if k != 'cords'
+    } and parts[4] in ('#', '%'):
+      team = parts[2]
+      role = parts[3]
+      cont = parts[4]
+      field = cast(FieldDict, ALL_TEAMS[team][role][cont])
+      return name, team, field, 'f'
 
   for part in parts:
     if isinstance(current, dict) and part in current:
       current = cast(Any, current[part])
     else:
       if current is v:
-        if part in settings_sections:
+        if part in SETTINGS_SECTIONS:
           return find_info_by_name(f'settings.{name}', commanding=commanding)
 
-        for section in settings_sections:
+        for section in SETTINGS_SECTIONS:
           if part in v['settings'][section]['fields']:
             return find_info_by_name(f'settings.{section}.fields.{name}', commanding=commanding)
 
           if v['settings'][section]['checkboxes'] is not None and part in v['settings'][section]['checkboxes']:
             return find_info_by_name(f'settings.{section}.checkboxes.{name}', commanding=commanding)
 
-        if part in all_teams:
+        if part in ALL_TEAMS:
           return find_info_by_name(f'roles_settings.all.{name}')
 
         if len(parts) >= 2 and '#' in parts or '%' in parts:
           for i in range(len(parts)):
             if parts[i] in ('#', '%'):
-              if parts[i-1] in teams_crewmate_roles:
+              if parts[i-1] in TEAMS_CREWMATE_ROLES:
                 return find_info_by_name(f'roles_settings.all.crewmate_roles.{name}', commanding=commanding)
-              if parts[i-1] in teams_impostor_roles:
+              if parts[i-1] in TEAMS_IMPOSTOR_ROLES:
                 return find_info_by_name(f'roles_settings.all.impostor_roles.{name}', commanding=commanding)
               break
 
-        if part in roles_settings_roles_all:
+        if part in ROLES_SETTINGS_ROLES_ALL:
           return find_info_by_name(f'roles_settings.{name}', commanding=commanding)
 
-        for section in roles_settings_roles:
+        for section in ROLES_SETTINGS_ROLES:
           if part in v['roles_settings'][section]['fields']:
             return find_info_by_name(f'roles_settings.{section}.fields.{name}', commanding=commanding)
 
@@ -456,7 +514,14 @@ def find_info_by_name(name: str, commanding: bool = False) -> Union[
 
       return None
   if isinstance(current, dict):
-    return list(cast(dict[str, Any], current.keys()))
+    current = cast(dict[Hashable, Any], current)
+    to_return: list[str] = []
+    for key, value in current.items():
+      if isinstance(value, dict):
+        to_return.append(key)
+      else:
+        to_return.append(f'{key}: {value}')
+    return '{'+',\n'.join(to_return)+'}'
   return current
 
 
@@ -471,16 +536,16 @@ def goto(section: str):
   if section == 'edit':
     mouse.position = v['edit']
     mouse.click(pn.mouse.Button.left)
-    printq('Went to edit')
+    print('Went to edit')
   if section == 'settings':
     set_setting('settings')
     current_all_section = 'crewmate_roles'
   if section == 'roles_settings' or section == 'crewmate_roles' or section == 'all':
     set_setting('roles_settings')
     current_all_section = 'crewmate_roles'
-  if section in settings_sections:
+  if section in SETTINGS_SECTIONS:
     set_setting('settings')
-    cords = settings_sections[section]['cords']
+    cords = SETTINGS_SECTIONS[section]['cords']
     if scroll(current_settings_section, cords):
       current_settings_section = cords
     current_all_section = 'crewmate_roles'
@@ -490,12 +555,12 @@ def goto(section: str):
       scroll(v['roles_settings']['all']['crewmate_roles']['cords'],
              v['roles_settings']['all']['impostor_roles']['cords'])
     current_all_section = 'impostor_roles'
-  if section in roles_settings_roles:
+  if section in ROLES_SETTINGS_ROLES:
     set_setting('roles_settings')
     if current_all_section != section:
-      mouse.position = roles_settings_roles[section]['cords']
+      mouse.position = ROLES_SETTINGS_ROLES[section]['cords']
       mouse.click(pn.mouse.Button.left)
-      printq('Section:', section)
+      print('Section:', section)
       current_all_section = section
   slp(0.0555)
 
@@ -509,13 +574,13 @@ def set_setting(name: str):
       if current_setting != 'settings':
         mouse.position = v['settings']['cords']
         mouse.click(pn.mouse.Button.left)
-        printq(f'Setting: was: {current_setting}, became: {name}')
+        print(f'Setting: was: {current_setting}, became: {name}')
         current_setting = 'settings'
     case 'roles_settings':
       if current_setting != 'roles_settings':
         mouse.position = v['roles_settings']['cords']
         mouse.click(pn.mouse.Button.left)
-        printq(f'Setting: was: {current_setting}, became: {name}')
+        print(f'Setting: was: {current_setting}, became: {name}')
         current_setting = 'roles_settings'
     case _:
       print('Unknown setting')
@@ -527,6 +592,7 @@ def calculate_clicks(info: FieldInfo | CheckboxInfo,
                      inner: bool | None = None,
                      qac: tuple[str, Literal['#', '%']] | None = None
                      ):
+
   if isinstance(inner, bool) and info[-1] == 'c':
     info = cast(CheckboxInfo, info)
     if isinstance(make, str):
@@ -546,6 +612,7 @@ def calculate_clicks(info: FieldInfo | CheckboxInfo,
       mouse.position = info[-2]
       mouse.click(pn.mouse.Button.left)
       print(f'Checkbox: was: {inner}, became: {make}')
+
   elif inner is None and info[-1] == 'f' and not isinstance(make, bool):
     info = cast(FieldInfo, info)
     if isinstance(info[-2]['step'], (int, float)):
@@ -580,6 +647,8 @@ def calculate_clicks(info: FieldInfo | CheckboxInfo,
               slp(0.0355)
             qacmanager.set_val(qac, cast(int, new_val))
             return
+          else:
+            return
         mid = info[-2]['vars'][len(info[-2]['vars'])//2]
         if new_val < mid:
           mouse.position = info[-2]['minus']
@@ -609,7 +678,8 @@ def calculate_clicks(info: FieldInfo | CheckboxInfo,
             slp(0.0355)
       else:
         print(
-            f'Making value {make} must be compatible {info[-2]["vars"]}')
+            f'Making value {make} must be compatible {info[-2]['vars']}')
+
     if info[-2]['step'] == 'string' and isinstance(make, str):
       if make.lower() in info[-2]['vars']:
         make = make.lower()
@@ -624,8 +694,8 @@ def calculate_clicks(info: FieldInfo | CheckboxInfo,
           offset = index-prev_val
           mouse.position = info[-2]['plus']
           for _ in range(offset):
-              mouse.click(pn.mouse.Button.left)
-              slp(0.0355)
+            mouse.click(pn.mouse.Button.left)
+            slp(0.0355)
         else:
           mouse.position = info[-2]['plus']
           prev_val = 2
@@ -635,14 +705,13 @@ def calculate_clicks(info: FieldInfo | CheckboxInfo,
           offset = prev_val-index
           mouse.position = info[-2]['minus']
           for _ in range(offset):
-              mouse.click(pn.mouse.Button.left)
-              slp(0.0355)
-        
-
+            mouse.click(pn.mouse.Button.left)
+            slp(0.0355)
       else:
         print(
-            f'Making value {make} must be compatible {info[-2]["vars"]}')
+            f'Making value {make} must be compatible {info[-2]['vars']}')
         return
+
     if info[-2]['step'] == 'inf5':
       if isinstance(make, str) and make.lower().replace(',', '.') in info[-2]['vars'] or make in info[-2]['vars']:
         if isinstance(make, str) and (make.lower() == 'infinity' or make.lower() == 'inf'):
@@ -674,7 +743,7 @@ def calculate_clicks(info: FieldInfo | CheckboxInfo,
             slp(0.0355)
       else:
         print(
-            f'Making value {make} must be compatible {info[-2]["vars"]}')
+            f'Making value {make} must be compatible {info[-2]['vars']}')
 
 
 def set_options(*options: tuple[str, Any]):
@@ -694,7 +763,7 @@ def set_options(*options: tuple[str, Any]):
       elif info[-1] == 'f':
         info = cast(FieldInfo, info)
         goto(info[1])
-        if info[0].split('.')[-2] in teams_crewmate_roles | teams_impostor_roles and info[0].split('.')[-1] in ('#', '%'):
+        if info[0].split('.')[-2] in TEAMS_CREWMATE_ROLES | TEAMS_IMPOSTOR_ROLES and info[0].split('.')[-1] in ('#', '%'):
           calculate_clicks(info, option[1], qac=(
               info[0].split('.')[-2], cast(Literal['#', '%'], info[0].split('.')[-1])))
         else:
@@ -708,10 +777,10 @@ def scroll(was: Cords, will: Cords) -> bool:
   """Scrolles slides from `settings` or `roles_settings.all`, """
   if was != will:
     was_name, will_name = None, None
-    for section in settings_sections:
-      if settings_sections[section]['cords'] == was:
+    for section in SETTINGS_SECTIONS:
+      if SETTINGS_SECTIONS[section]['cords'] == was:
         was_name = section
-      if settings_sections[section]['cords'] == will:
+      if SETTINGS_SECTIONS[section]['cords'] == will:
         will_name = section
     for team in ('crewmate_roles', 'impostor_roles'):
       if v['roles_settings']['all'][team]['cords'] == was:
@@ -726,7 +795,7 @@ def scroll(was: Cords, will: Cords) -> bool:
       mouse.move(0, will[1] - was[1])
       slp(0.15)
       mouse.release(pn.mouse.Button.left)
-      printq(f'Scroll: was: {was_name}, became: {will_name}')
+      print(f'Scroll: was: {was_name}, became: {will_name}')
     elif not was_name or not will_name:
       print(f'Section cannot be found')
       return False
@@ -750,54 +819,52 @@ def checkbox(cords: Cords) -> bool:
 def iw4_settings(x: int, y: int, button: pn.mouse.Button, pressed: bool):
   global current_setting
   if button == pn.mouse.Button.middle and pressed:
-    current_setting = 'standart_settings'
     goto('edit')
+    current_setting = 'standart_settings'
     set_options(
         ('settings.impostors.fields.#impostors', 3),
-        ('settings.impostors.fields.kill_cooldown', 25),
+        ('settings.impostors.fields.kill_cooldown', 22.5),
         ('settings.impostors.fields.impostor_vision', 1.75),
         ('settings.impostors.fields.kill_distance', 'medium'),
-        ('settings.crewmates.fields.player_speed', 1.5),
+        ('settings.crewmates.fields.player_speed', 1.25),
         ('settings.crewmates.fields.crewmate_vision', 1),
         ('settings.meetings.fields.#emergency_meetings', 1),
-        ('settings.meetings.fields.emergency_cooldown', 15),
-        ('settings.meetings.fields.discussion_time', 30),
-        ('settings.meetings.fields.voting_time', 30),
+        ('settings.meetings.fields.emergency_cooldown', 10),
+        ('settings.meetings.fields.discussion_time', 15),
+        ('settings.meetings.fields.voting_time', 60),
         ('settings.meetings.checkboxes.anonymous_votes', True),
         ('settings.meetings.checkboxes.confirm_ejects', True),
         ('settings.tasks.fields.task_bar_updates', 'meetings'),
         ('settings.tasks.fields.#common', 1),
         ('settings.tasks.fields.#long', 1),
-        ('settings.tasks.fields.#short', 2),
+        ('settings.tasks.fields.#short', 3),
         ('settings.tasks.checkboxes.visual_tasks', False),
 
         ('roles_settings.all.crewmate_roles.engineer.#', 1),
         ('roles_settings.all.crewmate_roles.engineer.%', 100),
         ('roles_settings.all.crewmate_roles.guardian_angel.#', 5),
         ('roles_settings.all.crewmate_roles.guardian_angel.%', 100),
-        ('roles_settings.all.crewmate_roles.scientist.#', 3),
-        ('roles_settings.all.crewmate_roles.scientist.%', 100),
+        ('roles_settings.all.crewmate_roles.scientist.#', 0),
+        ('roles_settings.all.crewmate_roles.scientist.%', 0),
         ('roles_settings.all.crewmate_roles.tracker.#', 1),
         ('roles_settings.all.crewmate_roles.tracker.%', 100),
-        ('roles_settings.all.crewmate_roles.noisemaker.#', 3),
+        ('roles_settings.all.crewmate_roles.noisemaker.#', 2),
         ('roles_settings.all.crewmate_roles.noisemaker.%', 100),
         ('roles_settings.all.impostor_roles.shapeshifter.#', 1),
         ('roles_settings.all.impostor_roles.shapeshifter.%', 100),
         ('roles_settings.all.impostor_roles.phantom.#', 2),
         ('roles_settings.all.impostor_roles.phantom.%', 100),
 
-        ('roles_settings.engineer.fields.vent_use_cooldown', 10),
-        ('roles_settings.engineer.fields.max_time_in_vents', 30),
-        ('roles_settings.guardian_angel.fields.protect_cooldown', 40),
-        ('roles_settings.guardian_angel.fields.protect_duration', 20),
+        ('roles_settings.engineer.fields.vent_use_cooldown', 5),
+        ('roles_settings.engineer.fields.max_time_in_vents', 50),
+        ('roles_settings.guardian_angel.fields.protect_cooldown', 35),
+        ('roles_settings.guardian_angel.fields.protect_duration', 15),
         ('roles_settings.guardian_angel.checkboxes.protect_visible_to_impostors', False),
-        ('roles_settings.scientist.fields.vitals_display_cooldown', 10),
-        ('roles_settings.scientist.fields.battery_duration', 30),
-        ('roles_settings.tracker.fields.tracking_cooldown', 15),
+        ('roles_settings.tracker.fields.tracking_cooldown', 25),
         ('roles_settings.tracker.fields.tracking_delay', 0),
-        ('roles_settings.tracker.fields.tracking_duration', 30),
+        ('roles_settings.tracker.fields.tracking_duration', 60),
         ('roles_settings.noisemaker.checkboxes.impostors_get_alert', True),
-        ('roles_settings.noisemaker.fields.alert_duration', 1),
+        ('roles_settings.noisemaker.fields.alert_duration', 15),
         ('roles_settings.shapeshifter.checkboxes.leave_shapeshifting_evidence', True),
         ('roles_settings.shapeshifter.fields.shapeshift_duration', 30),
         ('roles_settings.shapeshifter.fields.shapeshift_cooldown', 10),
@@ -807,38 +874,14 @@ def iw4_settings(x: int, y: int, button: pn.mouse.Button, pressed: bool):
     qacmanager.clear()
 
 
-def normal_view():
-  clear_console()
-  print('\n'.join(manager.written))
-
-
-def script_view():
+def review():
   clear_console()
   print(f'First edit enter -> {manager.script['data']['flag']}')
   if manager.script['repr']:
-    print('\n'.join(f'{i+1}:{line}' for i,
+    print('\n'.join(f'{i+1}: {line}' for i,
           line in enumerate(manager.script['repr'])))
   else:
     print('Empty script...')
-
-
-def printq(*args: Any, **kwargs: Any):
-  if not manager.viewing:
-    if kwargs.get('sep') is not None:
-      manager.written.append(kwargs['sep'].join([str(arg) for arg in args]))
-    else:
-      manager.written.append(' '.join([str(arg) for arg in args]))
-  print(*args, **kwargs)
-
-
-def inputq(string: str = '') -> str:
-  if manager.viewing and not manager.running:
-    nline()
-  inp = input(string)
-  if not manager.viewing:
-    if inp.lower().strip() not in ('view', 'v'):
-      manager.written.append(string+inp)
-  return inp
 
 
 def isfloat(s: str) -> bool:
@@ -861,7 +904,7 @@ def set_check(name: str, make: str) -> bool:
         if make.isdigit() and int(make) in info[-2]['vars']:
           return True
         else:
-          printq(
+          print(
               f'Making value {make} must be compatible {info[-2]["vars"]}')
           return False
       if isinstance(info[-2]['step'], float):
@@ -869,31 +912,35 @@ def set_check(name: str, make: str) -> bool:
         if isfloat(make) and float(make) in info[-2]['vars']:
           return True
         else:
-          printq(
+          print(
               f'Making value {make} must be compatible {info[-2]["vars"]}')
           return False
       if info[-2]['step'] == 'string':
         if make in info[-2]['vars']:
           return True
         else:
-          printq(
+          print(
               f'Making value {make} must be compatible {info[-2]["vars"]}')
           return False
       if info[-2]['step'] == 'inf5':
         if make == 'infinite' or make in info[-2]['vars'] or make.isdigit() and int(make) in info[-2]['vars']:
           return True
         else:
-          printq(
+          print(
               f'Making value {make} must be compatible {info[-2]["vars"]}')
           return False
     if info[-1] == 'c':
       if make in ('true', 'false'):
         return True
       else:
-        printq(
+        print(
             f'Making value {make} must be compatible {('true', 'false')}')
         return False
-  printq(f'Incorrect name {name}')
+  matches = get_close_matches(name, PARAMETERS_NAMES, n=1)
+  if matches:
+    print(f"Incorrect name, did you mean '{matches[0]}'?")
+  else:
+    print(f'Incorrect name {name}')
   return False
 
 
@@ -909,8 +956,12 @@ if __name__ == '__main__':
       with pn.mouse.Listener(on_click=iw4_settings) as listener:
         listener.join()
     case '2':
-      printq("Type 'help' for help")
-      while (inp := inputq().lower().strip()) not in ('e', 'exit'):
+      manager = ConsoleManager()
+      print("Script is empty, fisrt edit enter -> False")
+      print("Type 'help' if you use shell for the first time")
+      while manager.can_repeat_commanding:
+        inp = input(
+            f'{len(manager.script['repr'])+1}: ').lower().strip()
         manager.commanding(inp)
     case _:
       pass
