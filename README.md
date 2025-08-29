@@ -21,11 +21,12 @@ Download and run `.exe` file from [*Releases*](https://github.com/Iaw4tch/among-
 - `replace`/`r` `<index>` `<parameter>` `<value>` - Replace existing line with another.
 - `save`/`s`  - Save script info a file (GUI).
 - `load`/`l`  - Load script from a file (GUI).
-- `run`   - Program launch (Middle mouse button to start applying).
+- `run` `<start_key>` `<stop_key>`   - Program launch (Middle mouse button to start applying).
 - `stop`  - Stop program execution.
 - `edit`    - Toggle flag "*First edit*". If True middle button pressing will enter *Edit* tab first in game.
 - `.`  - View top level dict
 - `<Enter>` - Display written script
+- `buttons` - Display available mouse and keyboard buttons
 - `exit`/`e`     - Leave program
 
 

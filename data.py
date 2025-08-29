@@ -2,12 +2,14 @@ from typing import TypedDict, Literal, Any, cast, Callable, Hashable
 import numpy as np
 from screeninfo import get_monitors
 
+ratio = get_monitors()[0].width / 1080/get_monitors()[0].height
 width_d = 1920/get_monitors()[0].width
 height_d = 1080/get_monitors()[0].height
 
 
 def recount_pixels(x: int, y: int) -> tuple[int, int]:
-  return (round(x/width_d), round(y/height_d))
+  m = min(width_d, height_d)
+  return (round(x/m), round(y/m))
 
 
 def recursive_change(data: Any) -> Any:
@@ -687,12 +689,73 @@ command_info = '''Commands:
 - replace/r <index> <parameter <value>   - Replace existing line with an.
 - save/s                                 - Save script info a file (GUI).
 - load/l                                 - Load script from a file (GUI).
-- run                                    - Program launch (Middle mouse button to start applying).
+- run <start_key> <stop_key>             - Program launch (Middle mouse button to start applying).
 - stop                                   - Stop program execution.
 - edit                                   - Toggle flag "First edit". If True first middle button pressing will enter Edit tab first in game.
 - .                                      - View top level dict
 - <Enter>                                - Display written script
+- buttons                                - Display available mouse and keyboard buttons
 - exit/e                                 - Leave program'''
+iw4s = (
+    ('settings.impostors.fields.#impostors', 3),
+    ('settings.impostors.fields.kill_cooldown', 22.5),
+    ('settings.impostors.fields.impostor_vision', 1.75),
+    ('settings.impostors.fields.kill_distance', 'medium'),
+    ('settings.crewmates.fields.player_speed', 1.25),
+    ('settings.crewmates.fields.crewmate_vision', 1),
+    ('settings.meetings.fields.#emergency_meetings', 1),
+    ('settings.meetings.fields.emergency_cooldown', 10),
+    ('settings.meetings.fields.discussion_time', 15),
+    ('settings.meetings.fields.voting_time', 60),
+    ('settings.meetings.checkboxes.anonymous_votes', True),
+    ('settings.meetings.checkboxes.confirm_ejects', True),
+    ('settings.tasks.fields.task_bar_updates', 'meetings'),
+    ('settings.tasks.fields.#common', 1),
+    ('settings.tasks.fields.#long', 1),
+    ('settings.tasks.fields.#short', 3),
+    ('settings.tasks.checkboxes.visual_tasks', False),
+
+    ('roles_settings.all.crewmate_roles.engineer.#', 1),
+    ('roles_settings.all.crewmate_roles.engineer.%', 100),
+    ('roles_settings.all.crewmate_roles.guardian_angel.#', 5),
+    ('roles_settings.all.crewmate_roles.guardian_angel.%', 100),
+    ('roles_settings.all.crewmate_roles.scientist.#', 0),
+    ('roles_settings.all.crewmate_roles.scientist.%', 0),
+    ('roles_settings.all.crewmate_roles.tracker.#', 1),
+    ('roles_settings.all.crewmate_roles.tracker.%', 100),
+    ('roles_settings.all.crewmate_roles.noisemaker.#', 2),
+    ('roles_settings.all.crewmate_roles.noisemaker.%', 100),
+    ('roles_settings.all.impostor_roles.shapeshifter.#', 1),
+    ('roles_settings.all.impostor_roles.shapeshifter.%', 100),
+    ('roles_settings.all.impostor_roles.phantom.#', 2),
+    ('roles_settings.all.impostor_roles.phantom.%', 100),
+
+    ('roles_settings.engineer.fields.vent_use_cooldown', 5),
+    ('roles_settings.engineer.fields.max_time_in_vents', 50),
+    ('roles_settings.guardian_angel.fields.protect_cooldown', 35),
+    ('roles_settings.guardian_angel.fields.protect_duration', 15),
+    ('roles_settings.guardian_angel.checkboxes.protect_visible_to_impostors', False),
+    ('roles_settings.tracker.fields.tracking_cooldown', 25),
+    ('roles_settings.tracker.fields.tracking_delay', 0),
+    ('roles_settings.tracker.fields.tracking_duration', 60),
+    ('roles_settings.noisemaker.checkboxes.impostors_get_alert', True),
+    ('roles_settings.noisemaker.fields.alert_duration', 15),
+    ('roles_settings.shapeshifter.checkboxes.leave_shapeshifting_evidence', True),
+    ('roles_settings.shapeshifter.fields.shapeshift_duration', 30),
+    ('roles_settings.shapeshifter.fields.shapeshift_cooldown', 10),
+    ('roles_settings.phantom.fields.vanish_duration', 40),
+    ('roles_settings.phantom.fields.vanish_cooldown', 15),
+)
+BUTTONS = ['alt', 'alt_gr', 'alt_l', 'alt_r', 'backspace', 'caps_lock', 'cmd', 'cmd_r', 'ctrl', 'ctrl_l', 'ctrl_r', 'delete', 'down', 'end', 'enter', 'esc', 'f1', 'f10',
+           'f11', 'f12', 'f13', 'f14', 'f15', 'f16', 'f17', 'f18', 'f19', 'f2', 'f20', 'f21', 'f22', 'f23', 'f24', 'f3', 'f4', 'f5', 'f6', 'f7', 'f8', 'f9', 'home', 'insert',
+           'left', 'media_next', 'media_play_pause', 'media_previous', 'media_stop', 'media_volume_down', 'media_volume_mute', 'media_volume_up', 'menu', 'num_lock', 'page_down',
+           'page_up', 'pause', 'print_screen', 'right', 'scroll_lock', 'shift', 'shift_r', 'space', 'tab', 'up', ' ', '!', '"', '#', '$', '%', '&', "'", '(', ')', '*', '+',
+           ',', '-', '.', '/', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', ':', ';', '<', '=', '>', '?', '@', 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L',
+           'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z', '[', '\\', ']', '^', '_', '`', 'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l',
+           'm', 'n', 'o', 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z', '{', '|', '}', '~', 'А', 'Б', 'В', 'Г', 'Д', 'Е', 'Ж', 'З', 'И', 'Й', 'К', 'Л', 'М', 'Н',
+           'О', 'П', 'Р', 'С', 'Т', 'У', 'Ф', 'Х', 'Ц', 'Ч', 'Ш', 'Щ', 'Ъ', 'Ы', 'Ь', 'Э', 'Ю', 'Я', 'а', 'б', 'в', 'г', 'д', 'е', 'ж', 'з', 'и', 'й', 'к', 'л', 'м', 'н',
+           'о', 'п', 'р', 'с', 'т', 'у', 'ф', 'х', 'ц', 'ч', 'ш', 'щ', 'ъ', 'ы', 'ь', 'э', 'ю', 'я', 'Ё', 'ё']
 TEAL = (44, 243, 198)  # Cyan checkbox color
 TOLERANCE = 30  # Just in case
-CHECKBOX_SHAPE = (60, 60)  # Checkbox shape in pixels in 1080p
+# Checkbox shape in pixels in 1080p
+CHECKBOX_SHAPE = (round(60/width_d), round(60/height_d))
