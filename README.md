@@ -1,4 +1,4 @@
-# Among Us Lobby Settings Setter
+# Among Us Lobby Settings Setter (OUT OF DATE)
 
 Lobby settings setter for game Among Us.
 Allows you to quickly set needed lobby options via console or UI interface.
